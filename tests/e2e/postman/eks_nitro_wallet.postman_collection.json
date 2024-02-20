@@ -1,0 +1,358 @@
+{
+	"info": {
+		"_postman_id": "272d1fe1-c6a5-41d2-9dc3-6093684799fd",
+		"name": "eks_nitro_wallet",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "30633627"
+	},
+	"item": [
+		{
+			"name": "load_testing_signing",
+			"item": [
+				{
+					"name": "tx signature",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"transaction_payload\": {\n        \"value\": 0.01,\n        \"to\": \"0xa5D3241A1591061F2a4bB69CA0215F66520E67cf\",\n        \"nonce\": 0,\n        \"type\": 2,\n        \"chainId\": 5,\n        \"gas\": 100000,\n        \"maxFeePerGas\": 100000000000,\n        \"maxPriorityFeePerGas\": 3000000000\n    },\n    \"key_id\": \"{{key_id}}\",\n    \"secret\": \"{{secret}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/key/{{key_id}}/tx_signature",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"key",
+								"{{key_id}}",
+								"tx_signature"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "user op signature",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"transaction_payload\": {\n        \"userOpHash\": \"{{user_op_hash}}\"\n    },\n    \"key_id\": \"{{key_id}}\",\n    \"secret\": \"{{secret}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/key/{{key_id}}/userop_signature",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"key",
+								"{{key_id}}",
+								"userop_signature"
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"setTimeout(function(){}, [1000]);",
+							"// Add the count you want, eg:3 means run this request 10 times",
+							"pm.variables.set(\"retryCount_sign\",pm.variables.get(\"iterations\"))",
+							"pm.variables.set(\"runner_id\",pm.variables.get(\"runner_id\"))",
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"tests[\"[INFO] Response: \" + responseBody] = true;",
+							"",
+							"pm.test(\"Status code is 200\", () => {",
+							"  pm.response.to.have.status(200);",
+							"});",
+							"",
+							"//NOte: you can keep this request anywhere as setNExtRequest will get executed only after full reqeust flow completes",
+							"//so could be used in pre-request or in test-script",
+							"",
+							"//variables creates local variable so for each collection run the initial value will be undefined , so here we set the value to 3 at start",
+							"pm.variables.get(\"retryCounter\") === undefined ? pm.variables.set('retryCounter', pm.variables.get(\"retryCount_sign\")) : null;",
+							"pm.variables.get(\"runnerID\") === undefined ? pm.variables.set('runnerID', pm.variables.get(\"runner_id\")) : null;",
+							"retryCount_pol = pm.variables.get(\"retryCounter\");",
+							"",
+							"if (retryCount_pol > 1) {",
+							"    pm.variables.set('retryCounter', --retryCount_pol);",
+							"    //this gives this request name , you don't have to hardcode",
+							"    // console.log(`runner: ${runner_id} iteration: ${retryCount_pol}`);",
+							"    postman.setNextRequest(pm.info.requestName);",
+							"}",
+							"",
+							"//use below else condition if you don't want to execute any equests after this request",
+							"/*else{",
+							"",
+							"postman.setNextRequest(null);",
+							"}*/",
+							""
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "integration",
+			"item": [
+				{
+					"name": "generate key",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"secret\": \"{{secret}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}key",
+							"host": [
+								"{{base_url}}key"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "set external key",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"eth_key\": \"{{eth_key}}\",\n    \"secret\": \"{{secret}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}key",
+							"host": [
+								"{{base_url}}key"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "tx signature",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"transaction_payload\": {\n        \"value\": 0.01,\n        \"to\": \"0xa5D3241A1591061F2a4bB69CA0215F66520E67cf\",\n        \"nonce\": 0,\n        \"type\": 2,\n        \"chainId\": 5,\n        \"gas\": 100000,\n        \"maxFeePerGas\": 100000000000,\n        \"maxPriorityFeePerGas\": 3000000000\n    },\n    \"key_id\": \"{{key_id}}\",\n    \"secret\": \"{{secret}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/key/{{key_id}}/tx_signature",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"key",
+								"{{key_id}}",
+								"tx_signature"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "user op signature",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"transaction_payload\": {\n        \"userOpHash\": \"{{user_op_hash}}\"\n    },\n    \"key_id\": \"{{key_id}}\",\n    \"secret\": \"{{secret}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/key/{{key_id}}/userop_signature",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"key",
+								"{{key_id}}",
+								"userop_signature"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "load_testing_key_generation",
+			"item": [
+				{
+					"name": "generate key",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"secret\": \"{{secret}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}key",
+							"host": [
+								"{{base_url}}key"
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"setTimeout(function(){}, [1000]);",
+							"// Add the count you want, eg:3 means run this request 10 times",
+							"pm.variables.set(\"retryCount_sign\",pm.variables.get(\"iterations\"))",
+							"pm.variables.set(\"runner_id\",pm.variables.get(\"runner_id\"))",
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"tests[\"[INFO] Response: \" + responseBody] = true;",
+							"",
+							"pm.test(\"Status code is 200\", () => {",
+							"  pm.response.to.have.status(200);",
+							"});",
+							"",
+							"//NOte: you can keep this request anywhere as setNExtRequest will get executed only after full reqeust flow completes",
+							"//so could be used in pre-request or in test-script",
+							"",
+							"//variables creates local variable so for each collection run the initial value will be undefined , so here we set the value to 3 at start",
+							"pm.variables.get(\"retryCounter\") === undefined ? pm.variables.set('retryCounter', pm.variables.get(\"retryCount_sign\")) : null;",
+							"pm.variables.get(\"runnerID\") === undefined ? pm.variables.set('runnerID', pm.variables.get(\"runner_id\")) : null;",
+							"retryCount_pol = pm.variables.get(\"retryCounter\");",
+							"",
+							"if (retryCount_pol > 1) {",
+							"    pm.variables.set('retryCounter', --retryCount_pol);",
+							"    //this gives this request name , you don't have to hardcode",
+							"    // console.log(`runner: ${runner_id} iteration: ${retryCount_pol}`);",
+							"    postman.setNextRequest(pm.info.requestName);",
+							"}",
+							"",
+							"//use below else condition if you don't want to execute any equests after this request",
+							"/*else{",
+							"",
+							"postman.setNextRequest(null);",
+							"}*/",
+							""
+						]
+					}
+				}
+			]
+		}
+	],
+	"auth": {
+		"type": "awsv4",
+		"awsv4": [
+			{
+				"key": "secretKey",
+				"value": "{{aws_secret}}",
+				"type": "string"
+			},
+			{
+				"key": "accessKey",
+				"value": "{{aws_key}}",
+				"type": "string"
+			},
+			{
+				"key": "sessionToken",
+				"value": "{{aws_session_token}}",
+				"type": "string"
+			},
+			{
+				"key": "region",
+				"value": "{{aws_region}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "",
+			"type": "string"
+		}
+	]
+}

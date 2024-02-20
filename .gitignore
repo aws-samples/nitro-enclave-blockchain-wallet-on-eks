@@ -1,0 +1,27 @@
+*.swp
+package-lock.json
+__pycache__
+.pytest_cache
+.venv
+*.egg-info
+
+# CDK asset staging directory
+.cdk.staging
+cdk.out
+.idea
+AppOutput*
+EksOutput*
+*.eif
+./lib/enclave/kms/*
+./lib/enclave/proxy/*
+lib/enclave/ethereum-signer/kms/*
+lib/enclave/web3signer/kms/*
+lib/enclave/web3signer/proxy/*
+applications/ethereum-signer/enclave/kms/*
+applications/web3signer/enclave/kms/*
+applications/web3signer/enclave/proxy/*
+applications/ethereum-signer/third_party/*
+.DS_Store
+cdk.out.*
+*.json
+.vsock_base_port_assignments.tmp
