@@ -1,0 +1,19 @@
+#  Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#  SPDX-License-Identifier: MIT-0
+
+## build
+FROM golang:1.19-bullseye AS go_base
+
+WORKDIR /app
+
+ENV GOPROXY=direct
+COPY go.mod go.sum ./
+RUN go mod download
+
+ARG SKIP_TEST_ARG
+
+RUN if [ "$SKIP_TEST_ARG" != "true" ]; then go install honnef.co/go/tools/cmd/staticcheck@latest && \
+    go install github.com/securego/gosec/v2/cmd/gosec@latest; fi
+
+FROM go_base AS go_eks_base
+FROM go_base AS go_lambda_base

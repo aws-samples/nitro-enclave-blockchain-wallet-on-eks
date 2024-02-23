@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Id": "key-default-1",
+  "Statement": [
+    {
+      "Sid": "Enable decrypt from enclave",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "<template>"
+      },
+      "Action": "kms:Decrypt",
+      "Resource": "*",
+      "Condition": {
+        "StringEqualsIgnoreCase": {
+          "kms:RecipientAttestation:ImageSha384": "<template>"
+        }
+      }
+    },
+    {
+      "Sid": "Enable encrypt from Lambda instance",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "<template>"
+      },
+      "Action": "kms:Encrypt",
+      "Resource": "*"
+    },
+    {
+      "Sid": "Allow access for Key Administrators",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "<template>"
+      },
+      "Action": "kms:*",
+      "Resource": "*"
+    }
+  ]
+}
