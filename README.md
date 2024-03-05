@@ -143,6 +143,10 @@ export CDK_SKIP_TESTS=true
 1. Deploy the EKS cluster and other required services:
 
     ```shell
+    # create the dedicated eif folder and add two prefix specific dummy files to allow cdk to successfully synthesize
+    # before triggering deployment
+    mkdir -p ./applications/ethereum-signer/third_party/eif
+    touch ./applications/ethereum-signer/third_party/eif/${CDK_PREFIX}ethereum{-signer,-key-generator}_enclave.eif
     cdk deploy devEksNitroCluster --verbose -O devEksOutput.json --require-approval=never
     ```
 
