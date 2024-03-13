@@ -96,7 +96,7 @@ Please be aware that a full e2e integration test run including cluster creation 
 2. Download the code from the GitHub repo and change to the new directory:
 
    ```shell
-   git clone git@ssh.gitlab.aws.dev:blockchain-tfc/eks_nitro_wallet.git
+   git clone git@github.com:aws-samples/nitro-enclave-blockchain-wallet-on-eks.git
    ```
 
 3. Change to the nitro_validator_cdk repository:
