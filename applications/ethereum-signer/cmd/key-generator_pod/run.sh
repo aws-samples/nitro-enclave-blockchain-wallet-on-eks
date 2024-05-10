@@ -12,7 +12,8 @@ ENCLAVE_MEMORY_SIZE=1500
 vsock_port_1=$((VSOCK_BASE_PORT))
 vsock_port_2=$((vsock_port_1 + 1))
 
-if [[ "${LOG_LEVEL}" == "DEBUG" ]] || [[ "${LOG_LEVEL}" == "INFO" ]]; then
+#|| [[ "${LOG_LEVEL}" == "INFO" ]]
+if [[ "${LOG_LEVEL}" == "DEBUG" ]]; then
   debug="--debug-mode"
 else
   debug=

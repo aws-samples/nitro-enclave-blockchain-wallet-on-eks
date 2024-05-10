@@ -13,7 +13,7 @@ set -e
 kubectl get pods
 echo "sleeping for 360 seconds till Route53 entries have been fully propagated for Lambda lookup"
 sleep 360
-# run 10 instances with 100 requests (userOp, ethereumTx) each
-./tests/e2e/signing_load_test.sh load 20 1000
+# run 20 instances with 100 requests (userOp, ethereumTx) each, total of 4000 signing request, 20 key generation requests
+./tests/e2e/signing_load_test.sh load 20 100
 
 ./tests/e2e/cleanup.sh

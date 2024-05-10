@@ -8,39 +8,9 @@ The following diagram depicts the high level architecture of the solution that i
 repository which will be deployed to the specified AWS account.
 ![image info](./assets/eks_overview.png)
 
-#### Notes on High Availability
-
-Per default, each workload consist of `2` replicas distributed over the Nitro Enclave enabled k8s nodes. A service
-load balancer distributes the requests to the pods in a round-robin fashion. The nodes are per default configured to be located in different AZs.
-
-#### Notes on Isolation Properties
-* Each pod can see its associated enclaves [exclusively](https://github.com/aws/aws-nitro-enclaves-k8s-device-plugin/pull/13#discussion_r1481653355).
-* All enclaves share one EKS node thus CIDs need to be unique. If no CID is being specified, the hypervisor will 
-  associate a unique CID for each new enclave and avoid collisions.
-* Incoming requests on pods from enclaves, e.g. `vsock-proxy` are not filtered by associated enclaves.
-  As a consequence:
-  - different enclaves can use the same `vsock-proxy` process running on a single pod
-  - a central network outbound `vsock-proxy` can be started and shared for all enclaves that have the same outbound destination e.g. KMS.
-  - pods basically just run network forward-logic. Consider running a single pod with several enclaves to share resources.
-  - avoid pre-authorized services running on the pods waiting for incoming vsock connections.
-  - filter by source CID if cross pod communication for enclaves should be avoided
-  - leverage authenticated connections such as [TUN interfaces](https://github.com/balena/wireguard-go-vsock) for secure point-to-point connections
-
-#### Notes on Port Collisions
-* Pods that open listeners on CID `3` (vm host) have to use different ports, otherwise collisions will occur
-* This deployment assign a random `vsock_base_port` number to each application. Metrics port and vsock listener ports are being derived from this number 
-* Enclave CIDs will be orchestrated(incremented) per default by Hypervisor to avoid collisions
-
-
-### Metrics
-Pod related metrics can be read via `metrics` server e.g. via [`k9s`](https://k9scli.io/) tool. Enclave related `cpu` and `memory` metrics are being pushed to `NitroEnclave` namespace in CloudWatch.
-These metrics can be leveraged for CloudWatch alarms and thus become actionable for scaling related events e.g. via Lambda functions. Please refer to this [blog](https://aws.amazon.com/blogs/containers/autoscaling-amazon-eks-services-based-on-custom-prometheus-metrics-using-cloudwatch-container-insights/) for more information on EKS scaling. 
-
-![image info](./assets/metrics.png)
-
 ---
 
-## Development and Integration Tests
+## Development, Integration Tests and Requests
 
 ### Application
 All docker containers run linters and static security checks also on cross Lambda, pod and enclave dependencies for every deployment.
@@ -62,9 +32,19 @@ A full cluster and application deployment including load testsing and cleanup ca
 
 Please be aware that a full e2e integration test run including cluster creation and resource cleanup can take up to and hour.
 
+
+### Requests
+Postman collections specifying `key` and `signature` creation requests can be found in `tests/e2e/postman`. 
+
 ---
 
 ## Deployment
+
+**Disclaimer**
+Please be aware of changes happening to upstream dependencies.
+* [Docker >v25+ compatibility](https://github.com/aws/aws-nitro-enclaves-cli/pull/595)
+* [Device driver enclave support](https://github.com/aws/aws-nitro-enclaves-k8s-device-plugin/pull/13)
+* [Go <v1.22 issue](https://github.com/aws/aws-nitro-enclaves-k8s-device-plugin/issues/14)
 
 ### Prerequisites
 
@@ -99,10 +79,10 @@ Please be aware that a full e2e integration test run including cluster creation 
    git clone git@github.com:aws-samples/nitro-enclave-blockchain-wallet-on-eks.git
    ```
 
-3. Change to the nitro_validator_cdk repository:
+3. Change to the `nitro-enclave-blockchain-wallet-on-eks` repository:
 
    ```shell
-   cd eks_nitro_wallet
+   cd nitro-enclave-blockchain-wallet-on-eks
    ```
 
 4. Install the dependencies using the Python package manager:
@@ -125,7 +105,6 @@ export CDK_DEPLOY_REGION=eu-central-1
 export CDK_DEPLOY_ACCOUNT=$(aws sts get-caller-identity | jq -r '.Account')
 export CDK_PREFIX=dev
 export CDK_TARGET_ARCHITECTURE=linux/amd64
-export CDK_SKIP_TESTS=false
 ```
 
 If the EKS cluster should be deployed on AWS Graviton instances, set the following environment variable:
@@ -134,11 +113,6 @@ If the EKS cluster should be deployed on AWS Graviton instances, set the followi
 export CDK_TARGET_ARCHITECTURE=linux/arm64
 ```
 Per default, `'linux/amd64` is being chosen for now due to the easier downstream dependency and build management.
-
-Static tests can be turned off via the `CDK_SKIP_TESTS` environment variable.
-```shell
-export CDK_SKIP_TESTS=true
-```
 
 1. Deploy the EKS cluster and other required services:
 
@@ -151,7 +125,6 @@ export CDK_SKIP_TESTS=true
     ```
 
 2. Configure `kubectl` to point to your EKS cluster:
-   (todo consolidate to configure eks script)
     ```shell
     ./scripts/configure_environment.sh devEksOutput.json
     ```
@@ -171,30 +144,34 @@ export CDK_SKIP_TESTS=true
 * To significantly speed up RUST toolchain cross compile, leverage Graviton EC2 instance for `kmstool_enclave_cli` build. `arm` binary 
   needs to be placed in `applications/ethereum-signer/third_party/kms_arm64` folder before triggering `./scripts/build_enclave_image.sh ethereum-signer` build step.
 * The entire deployment of a cross-platform application takes **significant** more time since that static code scans,
-  tests and build steps are enclosed in the docker files and are also being executed in a virtualization framework.
+  tests and build steps are enclosed in the Dockerfiles and are also being executed in a virtualization framework.
   
 
 #### Deployment
-1. Build dependencies, the enclave docker file and turn it into an `.eif` file. The target region is already provided
+
+1. Build dependencies, the enclave Dockerfile and turn it into an `.eif` file. The target region is already provided
    during the build step.
    Please ensure that the **`CDK_DEPLOY_REGION`** environment variable has been set successfully with the correct value
    before triggering the build.
+
+   Static tests can be turned off via the `CDK_SKIP_TESTS` environment variable:
+   ```shell
+   export CDK_SKIP_TESTS=true
+   export CDK_APP_LOG_LEVEL=info
+   ```
+   
    ```shell
    ./scripts/build_enclave_image.sh ethereum-key-generator && \
    ./scripts/build_enclave_image.sh ethereum-signer
    ```
 
-2. Build docker file for key generator and signer pod and upload to ECR. Upload `key generator` and `signer`
+2. Build Dockerfile for key generator and signer pod and upload to ECR. Upload `key generator` and `signer`
    enclave `eif` files to S3
    as assets:
 
    ```shell
    cdk deploy devEthKeyManagementApp --verbose --require-approval=never
    ```
-
-   **Debug mode**
-   To deploy the application in debug mode (cryptographic attestation turned off), please change the `log_level`
-   parameter in app.py to `INFO` or `DEBUG`.
 
 3. Deploy the enclaves, pods and k8s service definitions to the EKS cluster. The NLB cluster operator will create two
    NLB
@@ -213,9 +190,12 @@ export CDK_SKIP_TESTS=true
    ```shell
    kms_key_id=$(aws ssm get-parameter --name "/${CDK_PREFIX}app/ethereum/key_id" --region "${CDK_DEPLOY_REGION}" | jq -r ".Parameter.Value")
 
-   ./scripts/generate_key_policy.sh ethereum-signer debug > key_policy.json
+   ./scripts/generate_key_policy.sh ethereum-signer > key_policy.json
    aws kms put-key-policy --region "${CDK_DEPLOY_REGION}" --policy-name default --key-id "${kms_key_id}" --policy file://key_policy.json
    ```
+    Debug settings in the key policy will be set up according to the chosen log_level in `CDK_APP_LOG_LEVEL`. Please be aware,
+    if `debug` mode is supposed to be activated, the `CDK_APP_LOG_LEVEL` environment varaible needs to be set to `DEBUG` and the 
+    application including the enclaves need to be deployed again.
 
 6. To test the deployment run the e2e test with the following parameters:
    ```shell
@@ -231,6 +211,8 @@ export CDK_SKIP_TESTS=true
    ```shell
    ./scripts/update_deployment.sh <ethereum_key_generator,ethereum_signer,all,none>
    ```
+
+---
 
 ### How to use Application
 To interact with the application use the provided API Gateway endpoint. The only supported authentication right now is AWS Signature Version 4 (SigV4).
@@ -253,6 +235,8 @@ aws_secret=$(jq -r '.Credentials.SecretAccessKey' <(echo "${AWS_SESSION_TOKEN_RE
 aws_key=$(jq -r '.Credentials.AccessKeyId' <(echo "${AWS_SESSION_TOKEN_RESPONSE}"))
 aws_region="${CDK_DEPLOY_REGION}"
 ```
+
+---
 
 ### Cleanup
 
@@ -278,6 +262,7 @@ To avoid additional costs after using the EKS Nitro Wallet solution, follow the 
    ./tests/e2e/cleanup.sh
    ```
 
+---
 
 ### Ethereum Key Generator <a name="create_or_import_key"></a>
 
@@ -285,52 +270,100 @@ To avoid additional costs after using the EKS Nitro Wallet solution, follow the 
 
 ![image info](./assets/eks_enclaves_key_generation.png)
 
-1. Use the request below to generate a new Ethereum key inside the Nitro Enclave leveraging hardware seeded entropy (
-   NSM), have it encrypted and stored in the DynamoDB
-   table. The secret needs to consist of 64 characters, preferably a `sha256` hex-string representation of your secret
-   password.
+[//]: # (1. Use the request below to generate a new Ethereum key inside the Nitro Enclave leveraging hardware seeded entropy &#40;NSM&#41;,)
 
-   ```shell
-   sha256sum <<< "MyPassword" | awk '{ print $1 }'
-   ```
+[//]: # (   have it encrypted and stored in the DynamoDB)
 
-   ```json
-   {
-     "operation": "ethereum-key-generator_generate_key",
-     "payload": {
-       "secret": "5e618e009fe35ea092150ad1f2c24e3181b4cf6693dc7bbd9a09ea9c8144720d"
-     }
-   }
-   ```
+[//]: # (   table. The secret needs to consist of 64 characters, preferably a `sha256` hex-string representation of your secret)
 
-   If external keys should be imported into the system, they can be provided via the following request. Lambda would
-   encrypt the private key/secret combination via KMS and stores it in DynamoDB.
-   ```json
-   {
-     "operation": "ethereum-signer_set_key",
-     "payload": {
-       "eth_key": "6835311872e1c63b50a8edd16605e2253c2a9c58ef9bf41f1d1c0c724981931a",
-       "secret": "5e618e009fe35ea092150ad1f2c24e3181b4cf6693dc7bbd9a09ea9c8144720d"
-     }
-   }
-   ```
+[//]: # (   password.)
 
-   If successful, both operations mentioned before would return a `key_id` that uniquely identifies the encrypted key
-   inside the DynamoDB secrets table:
-   ```json
-   {
-     "key_id": "1aadbab3-f76c-4b34-a1f0-9efa5f18d3e0"
-   }
-   ```
+[//]: # ()
+[//]: # (   ```shell)
 
-2. The `secret` specified in the key-generate request acts as an API key later on. It must be equal or longer than 20
-   alphanumeric characters.
-   If successful, you can use the returned `keyID` for the `ethereum-signer` application along with the right secret to
-   sign Ethereum transactions using the newly generated key.
+[//]: # (   sha256sum <<< "MyPassword" | awk '{ print $1 }')
+
+[//]: # (   ```)
+
+[//]: # ()
+[//]: # (   ```json)
+
+[//]: # (   {)
+
+[//]: # (     "operation": "ethereum-key-generator_generate_key",)
+
+[//]: # (     "payload": {)
+
+[//]: # (       "secret": "5e618e009fe35ea092150ad1f2c24e3181b4cf6693dc7bbd9a09ea9c8144720d")
+
+[//]: # (     })
+
+[//]: # (   })
+
+[//]: # (   ```)
+
+[//]: # ()
+[//]: # (   If external keys should be imported into the system, they can be provided via the following request. Lambda would)
+
+[//]: # (   encrypt the private key/secret combination via KMS and stores it in DynamoDB.)
+
+[//]: # (   ```json)
+
+[//]: # (   {)
+
+[//]: # (     "operation": "ethereum-signer_set_key",)
+
+[//]: # (     "payload": {)
+
+[//]: # (       "eth_key": "6835311872e1c63b50a8edd16605e2253c2a9c58ef9bf41f1d1c0c724981931a",)
+
+[//]: # (       "secret": "5e618e009fe35ea092150ad1f2c24e3181b4cf6693dc7bbd9a09ea9c8144720d")
+
+[//]: # (     })
+
+[//]: # (   })
+
+[//]: # (   ```)
+
+[//]: # ()
+[//]: # (   If successful, both operations mentioned before would return a `key_id` that uniquely identifies the encrypted key)
+
+[//]: # (   inside the DynamoDB secrets table:)
+
+[//]: # (   ```json)
+
+[//]: # (   {)
+
+[//]: # (     "key_id": "1aadbab3-f76c-4b34-a1f0-9efa5f18d3e0")
+
+[//]: # (   })
+
+[//]: # (   ```)
+
+[//]: # ()
+[//]: # (2. The `secret` specified in the key-generate request acts as an API key later on. It must be equal or longer than 20)
+
+[//]: # (   alphanumeric characters.)
+
+[//]: # (   If successful, you can use the returned `keyID` for the `ethereum-signer` application along with the right secret to)
+
+[//]: # (   sign Ethereum transactions using the newly generated key.)
 
 #### Explanation
+The following diagram depicts the interaction of the different services involved in `key_generation` and `key_storage`. 
 
 ![Key Generation Flow](./assets/key_generation_flow.png)
+
+1. Generate key request is being sent with the hash of a secret
+2. The request is augmented with temporary AWS credentials and being passed into the enclave
+3. Hardware based entropy is being used to generate the blockchain private key
+4. Blockchain private key is being passed along with KMS KeyID specified to AWS KMS for encryption, using the standard Go(lang) SDK through https tunnel
+5. Ciphertext is being returned to enclave via https tunnel
+6. Ciphertext is being stored in DynamoDB secretes table using the standards Go(lang) SDK through https tunnel
+7. DynamoDB creates KeyID for ciphertext entry
+8. KeyID is being returned to user
+
+---
 
 ### Ethereum Signer Application
 
@@ -338,61 +371,185 @@ To avoid additional costs after using the EKS Nitro Wallet solution, follow the 
 
 ![image info](./assets/eks_enclaves.png)
 
-1. Sing an Ethereum transaction specifying the `key_id` and user `secret` along with the EIP1559 tx
-   parameters like in the request below:
-   ```json
-   {
-     "operation": "ethereum-signer_sign_transaction",
-     "payload": {
-       "transaction_payload": {
-         "value": 0.01,
-         "to": "0xa5D3241A1591061F2a4bB69CA0215F66520E67cf",
-         "nonce": 0,
-         "type": 2,
-         "chainId": 4,
-         "gas": 100000,
-         "maxFeePerGas": 100000000000,
-         "maxPriorityFeePerGas": 3000000000
-       },
-       "key_id": "648a8e6f-a150-49f7-878e-2dafe77d9c10",
-       "secret": "5e618e009fe35ea092150ad1f2c24e3181b4cf6693dc7bbd9a09ea9c8144720d"
-     }
-   }
-   ```
+[//]: # (1. Sing an Ethereum transaction specifying the `key_id` and user `secret` along with the EIP1559 tx)
 
-   ```json
-   {
-     "operation": "ethereum-signer_sign_transaction",
-     "payload": {
-       "transaction_payload": {
-         "userOpHash": "5033589a303c005b7e7818f4bf00e7361335f51f648be16c028951f90a1585d4"
-       },
-       "key_id": "1aadbab3-f76c-4b34-a1f0-9efa5f18d3e0",
-       "secret": "9779d2b8f0bc495b1691ce1a2baf800453e18a58d4eea8bf1fe996a0ab291dba"
-     }
-   }
-   ```
+[//]: # (   parameters like in the request below:)
 
-   The key can either be generated or imported as described in the
-   section [above](#configure-and-use-application-a-namecreateorimportkey-a).
+[//]: # (   ```json)
 
-   If successful, the serialized signed transaction and its hash value will be returned like in the response shown
-   below:
-   ```json
-   {
-     "transaction_signed": "0x02f873048084b2d05e0085174876e800830186a094a5d3241a1591061f2a4bb69ca0215f66520e67cf872386f26fc1000080c001a0532545d1f03732f14e079ffa654af836a9cf1c119091f7c9bc3fd15874c5e05da01b40f921e10add034cec47e60c687c212de18fecd581288048ce173124960ab1",
-     "transaction_hash": "0x74b4789b79b019b62a535b9fbacf6b3161ca6d2deffe36565c2814520e97fdd3"
-   }
-   ```
+[//]: # (   {)
+
+[//]: # (     "operation": "ethereum-signer_sign_transaction",)
+
+[//]: # (     "payload": {)
+
+[//]: # (       "transaction_payload": {)
+
+[//]: # (         "value": 0.01,)
+
+[//]: # (         "to": "0xa5D3241A1591061F2a4bB69CA0215F66520E67cf",)
+
+[//]: # (         "nonce": 0,)
+
+[//]: # (         "type": 2,)
+
+[//]: # (         "chainId": 4,)
+
+[//]: # (         "gas": 100000,)
+
+[//]: # (         "maxFeePerGas": 100000000000,)
+
+[//]: # (         "maxPriorityFeePerGas": 3000000000)
+
+[//]: # (       },)
+
+[//]: # (       "key_id": "648a8e6f-a150-49f7-878e-2dafe77d9c10",)
+
+[//]: # (       "secret": "5e618e009fe35ea092150ad1f2c24e3181b4cf6693dc7bbd9a09ea9c8144720d")
+
+[//]: # (     })
+
+[//]: # (   })
+
+[//]: # (   ```)
+
+[//]: # ()
+[//]: # (   ```json)
+
+[//]: # (   {)
+
+[//]: # (     "operation": "ethereum-signer_sign_transaction",)
+
+[//]: # (     "payload": {)
+
+[//]: # (       "transaction_payload": {)
+
+[//]: # (         "userOpHash": "5033589a303c005b7e7818f4bf00e7361335f51f648be16c028951f90a1585d4")
+
+[//]: # (       },)
+
+[//]: # (       "key_id": "1aadbab3-f76c-4b34-a1f0-9efa5f18d3e0",)
+
+[//]: # (       "secret": "9779d2b8f0bc495b1691ce1a2baf800453e18a58d4eea8bf1fe996a0ab291dba")
+
+[//]: # (     })
+
+[//]: # (   })
+
+[//]: # (   ```)
+
+[//]: # ()
+[//]: # (   The key can either be generated or imported as described in the)
+
+[//]: # (   section [above]&#40;#configure-and-use-application-a-namecreateorimportkey-a&#41;.)
+
+[//]: # ()
+[//]: # (   If successful, the serialized signed transaction and its hash value will be returned like in the response shown)
+
+[//]: # (   below:)
+
+[//]: # (   ```json)
+
+[//]: # (   {)
+
+[//]: # (     "transaction_signed": "0x02f873048084b2d05e0085174876e800830186a094a5d3241a1591061f2a4bb69ca0215f66520e67cf872386f26fc1000080c001a0532545d1f03732f14e079ffa654af836a9cf1c119091f7c9bc3fd15874c5e05da01b40f921e10add034cec47e60c687c212de18fecd581288048ce173124960ab1",)
+
+[//]: # (     "transaction_hash": "0x74b4789b79b019b62a535b9fbacf6b3161ca6d2deffe36565c2814520e97fdd3")
+
+[//]: # (   })
+
+[//]: # (   ```)
 
 #### Explanation
 
 ![Signing Flow](./assets/signing_flow.png)
 
+1. Sign transaction request hmac(tx_parameter, key_id), secret  → not being passed, just used in hmac
+2. KeyID ciphertext is being loaded from DynamoDB secrets table 
+3. tx_signing_request being passed into enclave along with ciphertext
+4. Enclave decrypts ciphertext with kmstool-enclave-cli 
+5. Enclave validates hmac of tx_signing_request based on plaintext secret in key
+    1. Ensure message integrity
+    2. Archive authentication via secret
+6. Enclave signs transaction
+7. Enclave deletes key
+8. Enclave returns singed transaction
+
+---
+
+### Notes
+
+#### Metrics
+Pod related metrics can be read via `metrics` server e.g. via [`k9s`](https://k9scli.io/) tool. Enclave related `cpu` and `memory` metrics are being pushed to `NitroEnclave` namespace in CloudWatch.
+These metrics can be leveraged for CloudWatch alarms and thus become actionable for scaling related events e.g. via Lambda functions. Please refer to this [blog](https://aws.amazon.com/blogs/containers/autoscaling-amazon-eks-services-based-on-custom-prometheus-metrics-using-cloudwatch-container-insights/) for more information on EKS scaling. 
+
+![image info](./assets/metrics.png)
+
+
+#### Notes on High Availability
+
+Per default, each workload consist of `2` replicas distributed over the Nitro Enclave enabled k8s nodes. A service
+load balancer distributes the requests to the pods in a round-robin fashion. The nodes are per default configured to be located in different AZs.
+
+#### Notes on Isolation Properties
+* Each pod can see its associated enclaves [exclusively](https://github.com/aws/aws-nitro-enclaves-k8s-device-plugin/pull/13#discussion_r1481653355).
+* All enclaves share one EKS node thus CIDs need to be unique. If no CID is being specified, the hypervisor will 
+  associate a unique CID for each new enclave and avoid collisions.
+* Incoming requests on pods from enclaves, e.g. `vsock-proxy` are not filtered by associated enclaves.
+  As a consequence:
+  - different enclaves can use the same `vsock-proxy` process running on a single pod
+  - a central network outbound `vsock-proxy` can be started and shared for all enclaves that have the same outbound destination e.g. KMS.
+  - pods basically just run network forward-logic. Consider running a single pod with several enclaves to share resources.
+  - avoid pre-authorized services running on the pods waiting for incoming vsock connections.
+  - filter by source CID if cross pod communication for enclaves should be avoided
+  - leverage authenticated connections such as [TUN interfaces](https://github.com/balena/wireguard-go-vsock) for secure point-to-point connections
+
+#### Notes on Port Collisions
+* Pods that open listeners on CID `3` (vm host) have to use different ports, otherwise collisions will occur
+* This deployment assign a random `vsock_base_port` number to each application. Metrics port and vsock listener ports are being derived from this number 
+* Enclave CIDs will be orchestrated(incremented) per default by Hypervisor to avoid collisions
 
 ---
 
 ### Troubleshooting
+
+#### Docker Image Pull Error
+```shell
+Start building the Enclave Image...
+Docker error: PullError
+[ E50 ] Docker image pull error. Such error appears when trying to build an EIF file, but pulling the corresponding docker image fails. In this case, the error backtrace provides detailed informatino on the failure reason.
+
+For more details, please visit https://docs.aws.amazon.com/enclaves/latest/user/cli-errors.html#E50
+
+If you open a support ticket, please provide the error log found at "/var/log/nitro_enclaves/err2024-05-28T09:39:23.373384530+00:00.log"
+```
+
+**Solution**
+* Ensure that you are using `nitro-cli` > `v1.3.0`.
+* Consider downgrading the docker version to `<v25.x`
+* If versions cannot be adjusted, e.g. due to compliance reasons build `nitro-cli` locally via provided scripts:
+  1. Build cli via `scripts/build_nitro_cli.sh`
+  2. Change build image reference (`NITRO_EKS_BASE_BUILD_IMAGE`) accordingly in `scripts/build_enclave_image.sh`  
+
+#### Nitro Enclave Device Driver cannot be compiled
+```shell
+26.47 k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1: cannot compile Go 1.22 code
+------
+Dockerfile:18
+--------------------
+  16 |         go mod vendor
+  17 |
+  18 | >>> RUN CGO_ENABLED=0 go build -a -ldflags='-s -w -extldflags="-static"' .
+  19 |
+  20 |     # Create a bare minumum image that only contains the device plugin binary.
+--------------------
+ERROR: failed to solve: process "/bin/sh -c CGO_ENABLED=0 go build -a -ldflags='-s -w -extldflags=\"-static\"' ." did not complete successfully: exit code: 1
+```
+
+**Solution**
+Ensure that the Dockerfile located in `applications/ethereum-signer/third_party/aws-nitro-enclaves-k8s-device-plugin/container/Dockerfile` 
+has been replaced with the file located in `lib/docker/Dockerfile_device_plugin_amazon_linux_2023`. The CDK per default copies the
+Amazon Linux 2023 based Dockerfile to the repo as an alternative build file.
 
 #### Pods are in `CrashLoopBackOff` state
 ```shell

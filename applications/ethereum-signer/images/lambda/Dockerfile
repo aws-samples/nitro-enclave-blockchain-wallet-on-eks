@@ -14,7 +14,7 @@ RUN if [ "$SKIP_TEST_ARG" != "true" ]; then staticcheck $lambda_folders && \
     gosec $lambda_folders && \
     go test $lambda_folders -test.v; fi
 
-RUN go build -o /main ./cmd/lambda
+RUN go build -ldflags="-X main.version=v0.0.1" -o /main ./cmd/lambda
 
 # copy artifacts to a clean image
 FROM public.ecr.aws/lambda/provided:al2 AS prod

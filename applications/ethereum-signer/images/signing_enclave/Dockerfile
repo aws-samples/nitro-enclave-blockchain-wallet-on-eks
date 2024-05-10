@@ -12,7 +12,7 @@ RUN if [ "$SKIP_TEST_ARG" != "true" ]; then staticcheck $signing_enclave_folders
     gosec $signing_enclave_folders && \
     go test $signing_enclave_folders -test.v; fi
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-extldflags "-static"' ./cmd/signing_enclave
+RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-extldflags "-static"' -ldflags="-X main.version=v0.0.1" ./cmd/signing_enclave
 
 ## deploy image
 FROM debian:buster-slim AS prod

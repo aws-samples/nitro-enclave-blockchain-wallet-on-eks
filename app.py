@@ -24,7 +24,7 @@ EksNitroWalletStack(
 NitroWalletAppStack(
     app,
     "{}EthKeyManagementApp".format(prefix),
-    params={"log_level": os.environ.get("APP_LOG_LEVEL", "INFO")},
+    params={"log_level": os.environ.get("CDK_APP_LOG_LEVEL", "INFO")},
     env=Environment(
         region=os.environ.get("CDK_DEPLOY_REGION"),
         account=os.environ.get("CDK_DEPLOY_ACCOUNT"),

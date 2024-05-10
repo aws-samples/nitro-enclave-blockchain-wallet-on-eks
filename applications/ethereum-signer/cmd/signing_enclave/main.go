@@ -24,8 +24,10 @@ import (
 	"time"
 )
 
+var version = "undefined"
+
 func main() {
-	log.Info("starting signing enclave")
+	log.Printf("starting signing enclave (%s)", version)
 
 	logLevel, err := log.ParseLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
@@ -59,8 +61,7 @@ func main() {
 
 	log.SetLevel(logLevel)
 
-	// vsock_base_port + 1 for metrics (need to be changed to const e.g. 10
-	metricsClient := metrics.NewMetricsClient(3, listenerPort+1, 10*time.Second)
+	metricsClient := metrics.NewMetricsClient(3, listenerPort+metrics.PortOffset, 10*time.Second)
 	metricsClient.Start()
 	log.Infof("metrics client started with target cid: 3, port: %v", listenerPort+1)
 	log.Infof("start listening for signing requests")

@@ -35,6 +35,7 @@ class NitroWalletAppStack(Stack):
             "linux/amd64": {"platform": ecr_assets.Platform.LINUX_AMD64},
             "linux/arm64": {"platform": ecr_assets.Platform.LINUX_ARM64},
         }
+
         log_level = params.get("log_level")
 
         kms_key = kms.Key(
@@ -83,7 +84,7 @@ class NitroWalletAppStack(Stack):
             timeout=Duration.minutes(2),
             memory_size=256,
             environment={
-                "LOG_LEVEL": "DEBUG",
+                "LOG_LEVEL": log_level,
                 "SECRETS_TABLE": secrets_table.table_name,
                 "KEY_ARN": kms_key.key_arn,
                 "NITRO_INSTANCE_PRIVATE_DNS": cluster_zone_name,
@@ -112,7 +113,8 @@ class NitroWalletAppStack(Stack):
             ),
             deploy_options=apigateway.StageOptions(
                 stage_name=f"{prefix}",
-                logging_level=apigateway.MethodLoggingLevel.INFO,
+                logging_level=apigateway.MethodLoggingLevel.INFO if log_level in ["INFO",
+                                                                                  "DEBUG"] else apigateway.MethodLoggingLevel.ERROR,
                 data_trace_enabled=True,
                 tracing_enabled=True,
                 access_log_destination=apigateway.LogGroupLogDestination(
@@ -166,14 +168,14 @@ class NitroWalletAppStack(Stack):
             assumed_by=iam.AccountPrincipal(self.account),
         )
 
-        rest_api_url_ssm_param = ssm.StringParameter(
+        ssm.StringParameter(
             self,
             "RestAPIURLParameter",
             parameter_name=f"/{prefix}app/ethereum/rest_url",
             string_value=key_rest_api.url,
         )
 
-        rest_api_role_arn_ssm_param = ssm.StringParameter(
+        ssm.StringParameter(
             self,
             "RestAPIRoleArnParameter",
             parameter_name=f"/{prefix}app/ethereum/rest_url_role_arn",
@@ -213,8 +215,7 @@ class NitroWalletAppStack(Stack):
             file="images/signing_pod/Dockerfile",
             build_args={
                 "REGION_ARG": self.region,
-                # todo to be sourced from ssm
-                "LOG_LEVEL_ARG": "DEBUG",
+                "LOG_LEVEL_ARG": log_level,
                 "SKIP_TEST_ARG": "true" if os.getenv("CDK_SKIP_TESTS") else "false",
             },
             platform=target_architecture_config[target_architecture]["platform"],
@@ -228,8 +229,7 @@ class NitroWalletAppStack(Stack):
             file="images/key-generator_pod/Dockerfile",
             build_args={
                 "REGION_ARG": self.region,
-                # todo to be sourced from ssm
-                "LOG_LEVEL_ARG": "DEBUG",
+                "LOG_LEVEL_ARG": log_level,
                 "SKIP_TEST_ARG": "true" if os.getenv("CDK_SKIP_TESTS") else "false",
             },
             platform=target_architecture_config[target_architecture]["platform"],
@@ -271,8 +271,6 @@ class NitroWalletAppStack(Stack):
             cluster_name=cluster_name,
             open_id_connect_provider=cluster_oidc_provider,
             kubectl_role_arn=cluster_kubectl_role_arn,
-            # kubectl_role_arn="arn:aws:iam::168635352862:role/cw2EksNitroCluster-ConsoleReadOnlyRole0A30C09D-qGG56Yqy9y5u"
-            # kubectl_lambda_role=
         )
 
         generator_service_account = cluster.add_service_account("EKSSAGenerator")
@@ -428,7 +426,7 @@ class NitroWalletAppStack(Stack):
                 NagPackSuppression(
                     id="AwsSolutions-L1",
                     reason="Non-container Lambda function managed by predefined EKS templates for CDK",
-                )
+                ),
             ],
             apply_to_children=True,
         )

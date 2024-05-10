@@ -16,14 +16,17 @@ architecture=$(echo "${target_architecture}" | cut -d "/" -f 2)
 
 # parameters statically provided to the enclaves environment via docker build args
 REGION="${CDK_DEPLOY_REGION:-${AWS_DEFAULT_REGION}}"
-# todo better log level handling
-LOG_LEVEL=INFO
+
+LOG_LEVEL=${CDK_APP_LOG_LEVEL:-INFO}
 
 # base port for enclave and vsock-proxy(ies) and metrics server
 # requires Homebrew coreutils on MacOS
-# todo persist to ssm and update versions
 vsock_base_port=$(shuf -i 2000-65000 -n 1)
+# append ports for each not enclave build / cdk deploy step to keep port history
 echo "${application}:${vsock_base_port}" >> "${CDK_PREFIX}vsock_base_port_assignments.tmp"
+
+# lib/docker/Dockerfile_nitro-cli_build
+#NITRO_EKS_BASE_BUILD_IMAGE="nitro-cli_build_image"
 
 NITRO_EKS_BASE_BUILD_IMAGE="nitro_eks_build_base_image"
 ENCLAVE_DOCKER_PATH="./applications/ethereum-signer"
@@ -43,11 +46,11 @@ fi
 
 # required to be able to synthesize both stacks all the time
 if [[ ! -f ${ETHEREUM_SIGNER_ENCLAVE} ]]; then
-  touch ${ETHEREUM_SIGNER_ENCLAVE}
+  touch "${ETHEREUM_SIGNER_ENCLAVE}"
 fi
 
 if [[ ! -f ${ETHEREUM_KEY_GENERATOR_ENCLAVE} ]]; then
-  touch ${ETHEREUM_KEY_GENERATOR_ENCLAVE}
+  touch "${ETHEREUM_KEY_GENERATOR_ENCLAVE}"
 fi
 
 base_image_id=$(docker images -q ${NITRO_EKS_BASE_BUILD_IMAGE} 2> /dev/null)
@@ -73,7 +76,8 @@ if [[ ${application} == "ethereum-signer" ]]; then
 
 elif [[ ${application} == "ethereum-key-generator" ]]; then
 
-  if [[ ! -f ${PROXY_PATH}/viproxy ]]; then
+#  check if proxy has been build already and if not build it otherwise reuse binary
+  if [[ ! -f ${PROXY_PATH}/proxy ]]; then
     ./scripts/build_vsock_proxy.sh
   fi
 
@@ -86,4 +90,4 @@ cd "${ENCLAVE_DOCKER_PATH}"
 docker build --platform "${target_architecture}" --build-arg REGION_ARG="${REGION}" --build-arg LOG_LEVEL_ARG="${LOG_LEVEL}" --build-arg VSOCK_BASE_PORT_ARG="${vsock_base_port}" --build-arg SKIP_TEST_ARG="${CDK_SKIP_TESTS}" -t "${ENCLAVE_NAME}" -f "${DOCKER_FILE_PATH}" .
 docker run -ti --rm -v "$(pwd)":/app -v /var/run/docker.sock:/var/run/docker.sock "${NITRO_EKS_BASE_BUILD_IMAGE}" \
   sh -c "cd /app && \
-        nitro-cli build-enclave --docker-uri ${ENCLAVE_NAME}:latest --output-file /app/third_party/eif/${CDK_PREFIX}${ENCLAVE_NAME}.eif"
+    nitro-cli build-enclave --docker-uri ${ENCLAVE_NAME}:latest --output-file /app/third_party/eif/${CDK_PREFIX}${ENCLAVE_NAME}.eif"
