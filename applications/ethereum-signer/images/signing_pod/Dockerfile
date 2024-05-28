@@ -14,7 +14,7 @@ RUN if [ "$SKIP_TEST_ARG" != "true" ]; then staticcheck $signing_pod_folders && 
     gosec $signing_pod_folders && \
     go test $signing_pod_folders -test.v; fi
 
-RUN CGO_ENABLED=0 go build ./cmd/signing_pod
+RUN CGO_ENABLED=0 go build -ldflags="-X main.version=v0.0.1" ./cmd/signing_pod
 
 ## deploy image including required nitro-cli binaries
 FROM nitro_eks_pod_base_image:latest as prod

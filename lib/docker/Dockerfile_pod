@@ -1,6 +1,8 @@
 #  Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #  SPDX-License-Identifier: MIT-0
 
+# todo upgrade to al 2023
+# yum to be replace by dnf
 FROM amazonlinux:2 as build_image
 
 RUN amazon-linux-extras install aws-nitro-enclaves-cli && \

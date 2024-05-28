@@ -17,7 +17,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var version = "undefined"
+
 func main() {
+	log.Printf("starting key generator pod (%s)", version)
 	logLevel, err := log.ParseLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
 		log.Fatalf("LOG_LEVEL value (%s) could not be parsed: %s", os.Getenv("LOG_LEVEL"), err)
@@ -70,7 +73,7 @@ func main() {
 	router.POST("/", env.generateKey)
 
 	log.Infof("starting enclave metrics agent")
-	listenerPort := uint32(enclavePortInt + 2)
+	listenerPort := uint32(enclavePortInt + metrics.PortOffset)
 
 	metricsServer := metrics.NewMetricsServer(3, listenerPort)
 	err = metricsServer.Start()

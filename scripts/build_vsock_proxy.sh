@@ -13,11 +13,11 @@ fi
 
 cd "${PROXY_TARGET_DIRECTORY}"
 
-if [[ -d "./viproxy" ]]; then
-  rm -rf "./viproxy"
+# if viproxy has already been cloned continue
+if [[ ! -d "./viproxy" ]]; then
+  git clone --depth 1 --branch v0.1.2 https://github.com/brave/viproxy.git
 fi
 
-git clone https://github.com/brave/viproxy.git
 cd ./viproxy
 
 cat <<EOF | git apply --ignore-space-change --ignore-whitespace
@@ -37,7 +37,7 @@ index d202bd8..25bf477 100644
 EOF
 
 architecture=$(echo "${target_architecture}" | cut -d "/" -f 2)
-env GOOS=linux GOARCH="${architecture}" go build ./example/main.go
+GOOS=linux GOARCH="${architecture}" CGO_ENABLED=0 go build ./example/main.go
 cp main ../proxy
 cd ..
 rm -rf ./viproxy

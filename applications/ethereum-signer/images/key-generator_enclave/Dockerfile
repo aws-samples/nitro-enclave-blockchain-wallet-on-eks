@@ -12,7 +12,7 @@ RUN if [ "$SKIP_TEST_ARG" != "true" ]; then staticcheck $generator_enclave_folde
     gosec $generator_enclave_folders && \
     go test $generator_enclave_folders -test.v; fi
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-extldflags "-static"' ./cmd/key-generator_enclave
+RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-extldflags "-static"' -ldflags="-X main.version=v0.0.1" ./cmd/key-generator_enclave
 
 ## deploy image
 FROM alpine:latest AS prod

@@ -26,7 +26,6 @@ for instance_id in ${instance_ids_nl}; do
   echo "${instance_id}: ${status}"
 done
 
-# todo wrap in function
 for node in ${nodes}; do
   new_hugepages=$(kubectl describe node "${node}" | grep hugepages-1Gi: | head -n 1 | tail -c 5)
   echo -e "${node}: ${GREEN}${new_hugepages}${NC}"

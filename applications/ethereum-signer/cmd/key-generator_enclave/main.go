@@ -28,9 +28,10 @@ import (
 )
 
 var validate *validator.Validate
+var version = "undefined"
 
 func main() {
-	log.Info("starting key generation enclave")
+	log.Printf("starting key generation enclave (%s)", version)
 
 	logLevel, err := log.ParseLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
@@ -47,8 +48,7 @@ func main() {
 	// port is being incremented for outbound ports
 	// vsock_1: port (runs.sh)
 	// vsock_2: port + 1 (run.sh)
-	// metrics: port + 2
-	// todo introduce const for application port offset
+	// metrics: port + PortOffset(10 const)
 	port := os.Getenv("PORT")
 	if port == "" {
 		log.Fatalf("PORT cannot be empty")
@@ -70,9 +70,9 @@ func main() {
 
 	log.SetLevel(logLevel)
 
-	metricsClient := metrics.NewMetricsClient(3, listenerPort+2, 10*time.Second)
+	metricsClient := metrics.NewMetricsClient(3, listenerPort+metrics.PortOffset, 10*time.Second)
 	metricsClient.Start()
-	log.Infof("metrics client started with target cid: 3, port:8088")
+	log.Infof("metrics client started with target cid: 3, port: %d", listenerPort+metrics.PortOffset)
 	log.Infof("starting listener for key generation requests")
 	for {
 

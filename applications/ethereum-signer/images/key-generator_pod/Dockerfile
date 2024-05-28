@@ -13,7 +13,7 @@ RUN if [ "$SKIP_TEST_ARG" != "true" ]; then staticcheck $generator_pod_folders &
     gosec $generator_pod_folders && \
     go test $generator_pod_folders -test.v; fi
 
-RUN CGO_ENABLED=0 go build ./cmd/key-generator_pod
+RUN CGO_ENABLED=0 go build -ldflags="-X main.version=v0.0.1" ./cmd/key-generator_pod
 
 ## deploy image including required nitro-cli binaries
 FROM nitro_eks_pod_base_image:latest AS prod

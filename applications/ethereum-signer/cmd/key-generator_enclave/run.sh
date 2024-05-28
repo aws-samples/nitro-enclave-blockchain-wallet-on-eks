@@ -13,6 +13,7 @@ echo "127.0.0.1   kms.${REGION}.amazonaws.com" >>/etc/hosts
 echo "127.0.0.2   dynamodb.${REGION}.amazonaws.com" >>/etc/hosts
 
 # start outbound proxy for kms
+# todo fail if binary cannot be found
 IN_ADDRS=127.0.0.1:443 OUT_ADDRS=3:"$(($PORT))" /app/proxy &
 
 # start outbound proxy for dynamodb

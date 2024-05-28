@@ -18,11 +18,14 @@ import (
 	"os"
 )
 
+var version = "undefined"
+
 func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	requestJSON, err := json.Marshal(request)
 	if err != nil {
 		return events.APIGatewayProxyResponse{Body: err.Error(), StatusCode: 500}, nil
 	}
+	log.Debugf("starting ethereum key handler lambda (%s)", version)
 	log.Debugf("event:\n%s", requestJSON)
 
 	operation := ""

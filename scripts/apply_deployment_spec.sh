@@ -69,7 +69,7 @@ signer_vsock_base_port=$(grep "ethereum-signer" < "${CDK_PREFIX}vsock_base_port_
 log_level=$(echo "${deployment_params}" | jq -r '."/'${CDK_PREFIX}'app/ethereum/log_level".Value')
 # create deployment spec and service using path parameters defined above
 # generator deployment
-# todo validate via kubeconform
+
 # todo how to ensure that there are no 'empty' or 'nonetype' values / env keys are always available
 yq eval "(${METADATA_NAME_PATH} = \"${generator_app_name}-deployment\") |(${SERVICE_ACCOUNT_PATH} = \"${generator_pod_service_account}\") | (${IMAGE_PATH} = \"${generator_pod_image_uri}\") | (${TEMPLATE_APP_PATH} = \"${generator_app_name}\") | (${SELECTOR_APP_PATH} = \"${generator_app_name}\") | (${SECRETS_TABLE_PATH} = \"${secrets_table_name}\") | (${CONTAINER_NAME_PATH} = \"${generator_app_name}-container\") | (${FQDN_PATH} = \"${generator_fqdn}}\") | (${KEY_ARN_PATH} = \"${key_arn}\") | (${VSOCK_BASE_PORT_PATH} = \"${generator_vsock_base_port}\") | (${LOG_LEVEL_PATH} = \"${log_level}\") | (${ENCLAVE_IMAGE_URI_SSM_PATH} = \"${generator_enclave_image_uri_ssm}\")" ${DEPLOYMENT_TEMPLATE} | kubectl apply -f -
 yq eval "(${LOAD_BALANCER_APP_PATH} = \"${generator_app_name}\") | (${LOAD_BALANCER_NAME_PATH} = \"${generator_app_name}-service-loadbalancer\") | (${LOAD_BALANCER_ANNOTATIONS_PATH} += {\"external-dns.alpha.kubernetes.io/hostname\":\"${generator_fqdn}\"})" "${LOAD_BALANCER_TEMPLATE}" | kubectl apply -f -

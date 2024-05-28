@@ -8,12 +8,14 @@ ENCLAVE_CPU_COUNT=2
 # based on eif file size
 ENCLAVE_MEMORY_SIZE=1500
 
-if [[ "${LOG_LEVEL}" == "DEBUG" ]] || [[ "${LOG_LEVEL}" == "INFO" ]]; then
+# || [[ "${LOG_LEVEL}" == "INFO" ]]
+if [[ "${LOG_LEVEL}" == "DEBUG" ]]; then
   debug="--debug-mode"
 else
   debug=
 fi
 
+# todo old arithmetic
 vsock_port_1=$((VSOCK_BASE_PORT))
 
 generate_tls_artifact() {
@@ -49,8 +51,7 @@ enclave_cid=$(nitro-cli describe-enclaves | jq -r '.[0].EnclaveCID')
 export ENCLAVE_CID=${enclave_cid}
 
 # start outbound vsock proxy in background
-# todo how to solve build time port dependency
-vsock-proxy "${vsock_port_1}" kms."${AWS_REGION}".amazonaws.com 443 &
+vsock-proxy "${vsock_port_1}" kms."${AWS_REGION}".amazonaws.com 443 -w 20 &
 
 # todo tls inject private key and cert -> secrets manager download
 # todo save in ssm config store and point lambda to x509 cert for validation

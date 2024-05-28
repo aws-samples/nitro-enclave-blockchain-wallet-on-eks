@@ -17,15 +17,6 @@
       }
     },
     {
-      "Sid": "Enable encrypt from Lambda instance",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "<template>"
-      },
-      "Action": "kms:Encrypt",
-      "Resource": "*"
-    },
-    {
       "Sid": "Allow access for Key Administrators",
       "Effect": "Allow",
       "Principal": {

@@ -1,0 +1,7 @@
+#  Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+#  SPDX-License-Identifier: MIT-0
+
+FROM amazonlinux:2023 as nitro-cli_build_image
+RUN dnf install aws-nitro-enclaves-cli aws-nitro-enclaves-cli-devel -y
+WORKDIR /app
+COPY /build/nitro_cli/release/nitro-cli /usr/bin

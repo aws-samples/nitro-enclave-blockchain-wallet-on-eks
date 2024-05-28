@@ -4,6 +4,7 @@ import json
 import os
 import yaml
 import sys
+import shutil
 from git import Repo
 from aws_cdk import (
     Stack,
@@ -14,7 +15,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_ssm as ssm,
     aws_ecr_assets as ecr_assets,
-    CfnOutput
+    CfnOutput,
 )
 from constructs import Construct
 from cdk_nag import NagSuppressions, NagPackSuppression
@@ -70,7 +71,17 @@ class EksNitroWalletStack(Stack):
             vpc=vpc,
         )
 
-        self._create_private_link(vpc=vpc, services=["DYNAMODB", "KMS", "ECR", "S3", "CLOUDWATCH_LOGS", "CLOUDWATCH_MONITORING"])
+        self._create_private_link(
+            vpc=vpc,
+            services=[
+                "DYNAMODB",
+                "KMS",
+                "ECR",
+                "S3",
+                "CLOUDWATCH_LOGS",
+                "CLOUDWATCH_MONITORING",
+            ],
+        )
 
         zone_external_dns_updates_iam_policy = iam.ManagedPolicy(
             self,
@@ -158,17 +169,19 @@ class EksNitroWalletStack(Stack):
                 eks.ClusterLoggingTypes.CONTROLLER_MANAGER,
                 eks.ClusterLoggingTypes.SCHEDULER,
             ],
+            endpoint_access=eks.EndpointAccess.PUBLIC_AND_PRIVATE
         )
 
-        kubectl_role = iam.Role(self, "ConsoleReadOnlyRole",
-                                          assumed_by=iam.AccountRootPrincipal()
-                                          )
+        kubectl_role = iam.Role(
+            self, "ConsoleReadOnlyRole", assumed_by=iam.AccountRootPrincipal()
+        )
 
-        kubectl_role.add_to_policy(iam.PolicyStatement(
-            actions=["eks:AccessKubernetesApi", "eks:Describe*", "eks:List*"
-                     ],
-            resources=[cluster.cluster_arn]
-        ))
+        kubectl_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["eks:AccessKubernetesApi", "eks:Describe*", "eks:List*"],
+                resources=[cluster.cluster_arn],
+            )
+        )
 
         # Add this role to system:masters RBAC group
         cluster.aws_auth.add_masters_role(kubectl_role)
@@ -241,7 +254,6 @@ class EksNitroWalletStack(Stack):
             repository="https://aws.github.io/eks-charts",
             namespace=eks_cloudwatch_service_namespace_name,
             create_namespace=True,
-            # release="blueprints-addon-aws-fluent-bit-for-cw",
             values={
                 "serviceAccount": {
                     "name": eks_cloudwatch_service_account_name,
@@ -365,13 +377,9 @@ class EksNitroWalletStack(Stack):
             string_value=vpc.vpc_id,
         )
 
-        CfnOutput(self,
-                  "NitroEKSClusterKubectlRole",
-                  value=kubectl_role.role_arn)
+        CfnOutput(self, "NitroEKSClusterKubectlRole", value=kubectl_role.role_arn)
 
-        CfnOutput(self,
-                  "NitroEKSClusterName",
-                  value=cluster.cluster_name)
+        CfnOutput(self, "NitroEKSClusterName", value=cluster.cluster_name)
 
         NagSuppressions.add_resource_suppressions(
             construct=self,
@@ -399,7 +407,7 @@ class EksNitroWalletStack(Stack):
                 NagPackSuppression(
                     id="AwsSolutions-L1",
                     reason="Non-container Lambda function managed by predefined EKS templates for CDK",
-                )
+                ),
             ],
             apply_to_children=True,
         )
@@ -425,7 +433,7 @@ class EksNitroWalletStack(Stack):
                 )
 
     def _apply_k8s_nitro_operator(
-        self, folder: str, cluster: eks.ICluster, platform: ecr_assets.Platform
+            self, folder: str, cluster: eks.ICluster, platform: ecr_assets.Platform
     ) -> None:
         repo_folder = f"{folder}/aws-nitro-enclaves-k8s-device-plugin"
         # clone repo if folder does not yet exist
@@ -445,16 +453,21 @@ class EksNitroWalletStack(Stack):
         else:
             print("skipping git clone due to existing repository")
 
+        # override default docker image due to go build bug
+        # https://github.com/aws/aws-nitro-enclaves-k8s-device-plugin/issues/14
+        shutil.copy("./lib/docker/Dockerfile_device_plugin_amazon_linux_2023", f"{repo_folder}/container/Dockerfile_aml23")
+
+        # build docker image asset for enclave operator
         enclave_operator_image = ecr_assets.DockerImageAsset(
             self,
             "NitroEnclaveOperator",
             directory=repo_folder,
-            file="container/Dockerfile",
+            file="container/Dockerfile_aml23",
             platform=platform,
         )
 
         with open(
-            f"{repo_folder}/aws-nitro-enclaves-k8s-ds.yaml", "r", encoding="UTF-8"
+                f"{repo_folder}/aws-nitro-enclaves-k8s-ds.yaml", "r", encoding="UTF-8"
         ) as file:
             manifests_raw = file.read()
 
@@ -481,7 +494,7 @@ class EksNitroWalletStack(Stack):
         )
 
     def _create_k8s_namespace(
-        self, name: str, cluster: eks.ICluster, override: bool = True
+            self, name: str, cluster: eks.ICluster, override: bool = True
     ) -> eks.KubernetesManifest:
 
         return eks.KubernetesManifest(

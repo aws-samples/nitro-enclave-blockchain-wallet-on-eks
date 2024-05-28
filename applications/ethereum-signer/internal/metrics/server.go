@@ -12,6 +12,10 @@ import (
 	"strings"
 )
 
+const (
+	PortOffset = 10
+)
+
 type Server struct {
 	cid            uint32
 	port           uint32
