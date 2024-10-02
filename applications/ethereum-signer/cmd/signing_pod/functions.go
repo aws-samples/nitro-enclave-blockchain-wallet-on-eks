@@ -28,8 +28,8 @@ var validate *validator.Validate
 type Env struct {
 	config       *aws.Config
 	secretsTable string
-	enclaveCID   int64
-	enclavePort  int64
+	enclaveCID   uint64
+	enclavePort  uint64
 }
 
 func (e *Env) getEncryptedKey(keyID string) (signerTypes.Ciphertext, error) {
@@ -115,7 +115,7 @@ func (e *Env) signTransaction(c *gin.Context) {
 	}
 	log.Debugf("assembled signing payload: %v", payload)
 
-	conn, err := vsock.Dial(uint32(e.enclaveCID), uint32(e.enclavePort), nil)
+	conn, err := vsock.Dial(uint32(e.enclaveCID), uint32(e.enclavePort), nil) //#nosec G115
 	if err != nil {
 		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

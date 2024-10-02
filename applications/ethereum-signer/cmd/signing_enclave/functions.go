@@ -42,13 +42,13 @@ func filterNitroSDKError(error string) string {
 }
 
 // todo make outbound proxy port configurable
-func decryptCiphertext(credentials signerTypes.AWSCredentials, ciphertext string, vsockBasePort int64, region string) (string, error) {
+func decryptCiphertext(credentials signerTypes.AWSCredentials, ciphertext string, vsockBasePort uint64, region string) (string, error) {
 	cmd := []string{
 		"decrypt",
 		"--region",
 		region,
 		"--proxy-port",
-		strconv.FormatInt(vsockBasePort, 10),
+		strconv.FormatUint(vsockBasePort, 10),
 		"--aws-access-key-id",
 		credentials.AccessKeyID,
 		"--aws-secret-access-key",
@@ -136,10 +136,10 @@ func assembleEthereumTransaction(transactionPayload signerTypes.TransactionPaylo
 
 	tx := ethTypes.NewTx(&ethTypes.DynamicFeeTx{
 		ChainID:   chainID,
-		Nonce:     uint64(transactionPayload.Nonce),
+		Nonce:     uint64(transactionPayload.Nonce), //#nosec G115
 		GasTipCap: maxPriorityFeePerGas,
 		GasFeeCap: maxFeePerGas,
-		Gas:       uint64(transactionPayload.Gas),
+		Gas:       uint64(transactionPayload.Gas), //#nosec G115
 		To:        &to,
 		Value:     value,
 		Data:      data,

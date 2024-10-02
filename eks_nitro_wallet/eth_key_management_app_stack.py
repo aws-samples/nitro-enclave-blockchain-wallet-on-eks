@@ -80,6 +80,7 @@ class NitroWalletAppStack(Stack):
                 build_args={
                     "SKIP_TEST_ARG": "true" if os.getenv("CDK_SKIP_TESTS") else "false"
                 },
+                asset_name="invoke-lambda",
             ),
             timeout=Duration.minutes(2),
             memory_size=256,
@@ -219,6 +220,7 @@ class NitroWalletAppStack(Stack):
                 "SKIP_TEST_ARG": "true" if os.getenv("CDK_SKIP_TESTS") else "false",
             },
             platform=target_architecture_config[target_architecture]["platform"],
+            asset_name="signer-pod",
         )
         signer_pod_image.node.add_dependency(signer_enclave_image)
 
@@ -233,6 +235,7 @@ class NitroWalletAppStack(Stack):
                 "SKIP_TEST_ARG": "true" if os.getenv("CDK_SKIP_TESTS") else "false",
             },
             platform=target_architecture_config[target_architecture]["platform"],
+            asset_name="generator-pod",
         )
         generator_pod_image.node.add_dependency(generator_enclave_image)
 

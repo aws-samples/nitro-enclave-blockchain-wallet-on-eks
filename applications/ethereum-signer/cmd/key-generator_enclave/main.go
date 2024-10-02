@@ -54,11 +54,11 @@ func main() {
 		log.Fatalf("PORT cannot be empty")
 	}
 
-	portInt, err := strconv.ParseInt(port, 10, 64)
+	portInt, err := strconv.ParseUint(port, 10, 32)
 	if err != nil {
 		log.Fatalf("exception happened parsing provided port (%v) to int: %s", port, err)
 	}
-	listenerPort := uint32(portInt)
+	listenerPort := uint32(portInt) //#nosec G115
 	contextID, err := vsock.ContextID()
 	if err != nil {
 		log.Fatalf("exception happened getting enclave contextID: %s", err)

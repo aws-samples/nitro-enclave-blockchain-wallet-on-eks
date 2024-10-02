@@ -21,8 +21,8 @@ import (
 
 type Env struct {
 	Config      *aws.Config
-	EnclaveID   int64
-	EnclavePort int64
+	EnclaveID   uint64
+	EnclavePort uint64
 }
 
 var validate *validator.Validate
@@ -87,7 +87,7 @@ func (e *Env) generateKey(c *gin.Context) {
 	}
 	log.Debugf("serialized key generation payload: %q", payloadSerialized)
 
-	conn, err := vsock.Dial(uint32(e.EnclaveID), uint32(e.EnclavePort), nil)
+	conn, err := vsock.Dial(uint32(e.EnclaveID), uint32(e.EnclavePort), nil) //#nosec G115
 	if err != nil {
 		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -45,7 +45,7 @@ func main() {
 	if enclaveCID == "" {
 		log.Fatalf("ENCLAVE_CID cannot be empty")
 	}
-	enclaveCIDInt, err := strconv.ParseInt(enclaveCID, 10, 64)
+	enclaveCIDInt, err := strconv.ParseUint(enclaveCID, 10, 32)
 	if err != nil {
 		log.Fatalf("exception happened converting ENCLAVE_PORT string (%v) to int: %s", enclaveCID, err)
 	}
@@ -53,7 +53,7 @@ func main() {
 	if enclavePort == "" {
 		log.Fatalf("ENCLAVE_PORT cannot be empty")
 	}
-	enclavePortInt, err := strconv.ParseInt(enclavePort, 10, 64)
+	enclavePortInt, err := strconv.ParseUint(enclavePort, 10, 32)
 	if err != nil {
 		log.Fatalf("exception happened converting ENCLAVE_PORT string (%v) to int: %s", enclavePort, err)
 	}
@@ -73,7 +73,7 @@ func main() {
 	router.POST("/", env.generateKey)
 
 	log.Infof("starting enclave metrics agent")
-	listenerPort := uint32(enclavePortInt + metrics.PortOffset)
+	listenerPort := uint32(enclavePortInt + metrics.PortOffset) //#nosec G115
 
 	metricsServer := metrics.NewMetricsServer(3, listenerPort)
 	err = metricsServer.Start()

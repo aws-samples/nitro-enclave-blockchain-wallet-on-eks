@@ -4,7 +4,6 @@ import json
 import os
 import yaml
 import sys
-import shutil
 from git import Repo
 from aws_cdk import (
     Stack,
@@ -237,7 +236,6 @@ class EksNitroWalletStack(Stack):
             name=eks_cloudwatch_service_account_name,
             namespace=eks_cloudwatch_service_namespace_name,
         )
-        # eks_cloudwatch_service_account.node.dependencies.append(eks_cloudwatch_service_namespace)
         eks_cloudwatch_service_account.node.add_dependency(
             eks_cloudwatch_service_namespace
         )
@@ -366,7 +364,6 @@ class EksNitroWalletStack(Stack):
             self,
             "NitroEKSClusterKubectlRoleARNSSMParameter",
             parameter_name=f"/{prefix}eks/nitro/ethereum/kubectl_role_arn",
-            # string_value=cluster.kubectl_role.role_arn,
             string_value=kubectl_role.role_arn,
         )
 
@@ -439,9 +436,9 @@ class EksNitroWalletStack(Stack):
         # clone repo if folder does not yet exist
         if not os.path.isdir(repo_folder):
             try:
-                # https://github.com/aws/aws-nitro-enclaves-k8s-device-plugin/pull/13#discussion_r1481653355
+                # has to be pinned to specific tag when available - v0.1.0 outdated
                 Repo.clone_from(
-                    "https://github.com/shankar95raju/aws-nitro-enclaves-k8s-device-plugin.git",
+                    "https://github.com/aws/aws-nitro-enclaves-k8s-device-plugin.git",
                     repo_folder,
                     branch="feature/update-device-plugin-increase-capacity",
                 )
@@ -453,17 +450,15 @@ class EksNitroWalletStack(Stack):
         else:
             print("skipping git clone due to existing repository")
 
-        # override default docker image due to go build bug
-        # https://github.com/aws/aws-nitro-enclaves-k8s-device-plugin/issues/14
-        shutil.copy("./lib/docker/Dockerfile_device_plugin_amazon_linux_2023", f"{repo_folder}/container/Dockerfile_aml23")
-
-        # build docker image asset for enclave operator
+        # build docker image asset for enclave operator till 4 enclave support is available via public ecr
+        # https://gallery.ecr.aws/aws-nitro-enclaves/aws-nitro-enclaves-k8s-device-plugin
         enclave_operator_image = ecr_assets.DockerImageAsset(
             self,
             "NitroEnclaveOperator",
             directory=repo_folder,
-            file="container/Dockerfile_aml23",
+            file="container/Dockerfile",
             platform=platform,
+            asset_name="nitro-enclave-device-plugin-ds",
         )
 
         with open(
@@ -474,7 +469,7 @@ class EksNitroWalletStack(Stack):
         # returns generator
         manifests_generator = yaml.safe_load_all(manifests_raw)
 
-        # build list of manifests and manipulate custom daemonset uri
+        # build list of manifests and manipulate custom daemon set uri
         manifests = []
         for manifest_raw in manifests_generator:
             manifest = manifest_raw
