@@ -1,6 +1,6 @@
 aws-cdk-lib==2.98.0
 constructs==10.1.271
 cdk-nag==2.22.29
-aws-cdk.lambda-layer-kubectl-v27==2.0.0
+aws-cdk.lambda-layer-kubectl-v27==2.1.0
 PyYAML==6.0
 GitPython==3.1.41
