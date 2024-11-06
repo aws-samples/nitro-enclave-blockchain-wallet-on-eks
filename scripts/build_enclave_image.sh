@@ -5,11 +5,7 @@ set +x
 set -e
 # ethereum-signer or ethereum-key-generator
 application=${1}
-
-if [ -z "${application}" ]; then
-  echo "application parameter needs to be specified: ethereum-signer, ethereum-key-generator"
-  exit 1
-fi
+[ -z "${application}" ] && echo "application parameter needs to be specified: ethereum-signer, ethereum-key-generator" && exit 1
 
 target_architecture=${CDK_TARGET_ARCHITECTURE:-linux/amd64}
 architecture=$(echo "${target_architecture}" | cut -d "/" -f 2)
@@ -23,7 +19,7 @@ LOG_LEVEL=${CDK_APP_LOG_LEVEL:-INFO}
 # requires Homebrew coreutils on MacOS
 vsock_base_port=$(shuf -i 2000-65000 -n 1)
 # append ports for each not enclave build / cdk deploy step to keep port history
-echo "${application}:${vsock_base_port}" >> "${CDK_PREFIX}vsock_base_port_assignments.tmp"
+echo "${application}:${vsock_base_port}" >>"${CDK_PREFIX}vsock_base_port_assignments.tmp"
 
 # lib/docker/Dockerfile_nitro-cli_build
 #NITRO_EKS_BASE_BUILD_IMAGE="nitro-cli_build_image"
@@ -39,7 +35,6 @@ ETHEREUM_KEY_GENERATOR_ENCLAVE="${EIF_PATH}/${CDK_PREFIX}ethereum-key-generator_
 
 [ -z "${REGION}" ] && echo "CDK_DEPLOY_REGION or AWS_DEFAULT_REGION cannot be empty" && exit 1
 
-
 if [[ ! -d ${EIF_PATH} ]]; then
   mkdir -p "${EIF_PATH}"
 fi
@@ -53,30 +48,20 @@ if [[ ! -f ${ETHEREUM_KEY_GENERATOR_ENCLAVE} ]]; then
   touch "${ETHEREUM_KEY_GENERATOR_ENCLAVE}"
 fi
 
-base_image_id=$(docker images -q ${NITRO_EKS_BASE_BUILD_IMAGE} 2> /dev/null)
+base_image_id=$(docker images -q ${NITRO_EKS_BASE_BUILD_IMAGE} 2>/dev/null)
 # validate that required base images exists and that they correspond with the target architecture
-if [[  ${base_image_id} == "" ]] || [[ $(docker image inspect "${base_image_id}" | jq -r '.[0].Architecture') != "${architecture}" ]]; then
+if [[ ${base_image_id} == "" ]] || [[ $(docker image inspect "${base_image_id}" | jq -r '.[0].Architecture') != "${architecture}" ]]; then
   ./scripts/build_docker_base.sh
 fi
 
 if [[ ${application} == "ethereum-signer" ]]; then
 
-  mkdir -p "${KMS_PATH}"
-
-  if [[ ! -f ${KMS_PATH}_${architecture}/kmstool_enclave_cli ]] || [[ ! -f ${KMS_PATH}_${architecture}/libnsm.so ]]; then
-    ./scripts/build_kmstool_enclave_cli.sh "${application}"
-  fi
-
   DOCKER_FILE_PATH="./images/signing_enclave/Dockerfile"
   ENCLAVE_NAME="ethereum-signer_enclave"
 
-  # symlinks not supported by docker
-  #  ln -s ${KMS_PATH}_"${architecture}"/kmstool_enclave_cli ${KMS_PATH}_"${architecture}"/libnsm.so ${KMS_PATH}
-  cp -f ${KMS_PATH}_"${architecture}"/kmstool_enclave_cli ${KMS_PATH}_"${architecture}"/libnsm.so ${KMS_PATH}
-
 elif [[ ${application} == "ethereum-key-generator" ]]; then
 
-#  check if proxy has been build already and if not build it otherwise reuse binary
+  #  check if proxy has been build already and if not build it otherwise reuse binary
   if [[ ! -f ${PROXY_PATH}/proxy ]]; then
     ./scripts/build_vsock_proxy.sh
   fi

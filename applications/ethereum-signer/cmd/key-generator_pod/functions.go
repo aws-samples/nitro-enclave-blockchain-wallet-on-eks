@@ -48,6 +48,7 @@ func (e *Env) generateKey(c *gin.Context) {
 
 	stsCredentials, err := pod.GetAWSWebIdentityCredentials(e.Config, "key-generator_session")
 	if err != nil {
+		log.Errorf("could not gather sts pod: %v", err)
 		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

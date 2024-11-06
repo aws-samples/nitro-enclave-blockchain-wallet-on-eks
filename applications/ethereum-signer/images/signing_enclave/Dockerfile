@@ -15,7 +15,7 @@ RUN if [ "$SKIP_TEST_ARG" != "true" ]; then staticcheck $signing_enclave_folders
 RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-extldflags "-static"' -ldflags="-X main.version=v0.0.1" ./cmd/signing_enclave
 
 ## deploy image
-FROM debian:buster-slim AS prod
+FROM debian:bookworm-slim AS prod
 RUN apt-get update && \
     apt-get install -y ca-certificates && \
     apt-get clean && \
@@ -32,11 +32,6 @@ ARG VSOCK_BASE_PORT_ARG
 ENV PORT=$VSOCK_BASE_PORT_ARG
 
 WORKDIR /app
-
-# kmstool enclave cli
-ENV LD_LIBRARY_PATH=/usr/lib64
-COPY ./third_party/kms/kmstool_enclave_cli ./
-COPY ./third_party/kms/libnsm.so /usr/lib64/
 
 COPY --from=build /app/signing_enclave /app/signing_enclave
 

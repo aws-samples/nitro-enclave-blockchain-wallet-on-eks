@@ -1,89 +1,13 @@
-package main
+package ethereum
 
 import (
 	"aws/ethereum-signer/internal/types"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	ethTypes "github.com/ethereum/go-ethereum/core/types"
+	types2 "github.com/ethereum/go-ethereum/core/types"
 	"math/big"
 	"reflect"
 	"testing"
 )
-
-func Test_parsePlaintext(t *testing.T) {
-	type args struct {
-		kmsResultB64 string
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    types.PlainKey
-		wantErr bool
-	}{
-		{name: "ok",
-			args: args{
-				kmsResultB64: "eyJzZWNyZXQiOiI5Nzc5ZDJiOGYwYmM0OTViMTY5MWNlMWEyYmFmODAwNDUzZTE4YTU4ZDRlZWE4YmYxZmU5OTZhMGFiMjkxZGJhIiwiZXRoX2tleSI6IjM3MjM2OWYzNzRjNjg5NTJiY2IyYmEyZTNmMzgwMmQ0MWQ1MWNiMjU1NDQ2YzI3ZGVmOTZjYzg0ODYwNWQ2NzkifQ==",
-			},
-			want: types.PlainKey{
-				Secret: "9779d2b8f0bc495b1691ce1a2baf800453e18a58d4eea8bf1fe996a0ab291dba",
-				EthKey: "372369f374c68952bcb2ba2e3f3802d41d51cb255446c27def96cc848605d679"},
-			wantErr: false,
-		},
-		{name: "bad",
-			args: args{
-				kmsResultB64: "eyJzZWNyZXQiOiI5Nzc5ZDJiOGYwYmM0OTViMTY5MWNlMWEyYmFmODAwNDUzZTE4YTU4ZDRlZWE4YmYxZmU5OTZhMGFiMjkxZGJhIiwiZXRoX2tleSI6IjM3MjM2OWYzNzRjNjg5NTJiY2IyYmEyZTNmMzgwMmQ0MWQ1MWNiMjU1NDQ2YzI3ZGVmOTZjYzg0ODYwNWFFSF==",
-			},
-			want:    types.PlainKey{},
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := parsePlaintext(tt.args.kmsResultB64)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parsePlaintext() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("parsePlaintext() got = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func Test_timestampInRange(t *testing.T) {
-	type args struct {
-		providedTimestamp int
-		ownTimestamp      int
-		maxDelta          int
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{name: "ok",
-			args: args{
-				providedTimestamp: 123,
-				ownTimestamp:      123,
-				maxDelta:          0,
-			},
-			want: true},
-		{name: "bad",
-			args: args{
-				providedTimestamp: 117,
-				ownTimestamp:      123,
-				maxDelta:          5,
-			},
-			want: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := timestampInRange(tt.args.providedTimestamp, tt.args.ownTimestamp, tt.args.maxDelta); got != tt.want {
-				t.Errorf("timestampInRange() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
 
 func Test_assembleEthereumTransaction(t *testing.T) {
 	type args struct {
@@ -113,7 +37,7 @@ func Test_assembleEthereumTransaction(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := assembleEthereumTransaction(tt.args.transactionPayload)
+			got := AssembleTransaction(tt.args.transactionPayload)
 			if !reflect.DeepEqual(got.Hash().Hex(), tt.want) {
 				t.Errorf("assembleEthereumTransaction() got = %v, want %v", got, tt.want)
 			}
@@ -148,7 +72,7 @@ func Test_signEthereumTransaction(t *testing.T) {
 	r, _ := new(big.Int).SetString("52797251190525160680904325891953736147891461127620022141963968447794245047899", 10)
 	s, _ := new(big.Int).SetString("39479225745237986495600255552539419729722647530016349795492341493095878075154", 10)
 	type args struct {
-		assembledTx *ethTypes.Transaction
+		assembledTx *types2.Transaction
 		ethKey      string
 	}
 	tests := []struct {
@@ -160,7 +84,7 @@ func Test_signEthereumTransaction(t *testing.T) {
 		{
 			name: "ok",
 			args: args{
-				assembledTx: assembleEthereumTransaction(types.TransactionPayload{
+				assembledTx: AssembleTransaction(types.TransactionPayload{
 					Value:                0.01,
 					To:                   "0xa5D3241A1591061F2a4bB69CA0215F66520E67cf",
 					Nonce:                0,
@@ -183,7 +107,7 @@ func Test_signEthereumTransaction(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := signEthereumTransaction(tt.args.assembledTx, tt.args.ethKey)
+			got, err := SignEthereumTransaction(tt.args.assembledTx, tt.args.ethKey)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("signEthereumTransaction() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -226,7 +150,7 @@ func Test_signUserOps(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := signUserOps(tt.args.userOpsHash, tt.args.ethKey)
+			got, err := SignUserOps(tt.args.userOpsHash, tt.args.ethKey)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("signUserOps() error = %v, wantErr %v", err, tt.wantErr)
 				return

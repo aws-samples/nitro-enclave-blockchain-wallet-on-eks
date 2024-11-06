@@ -8,7 +8,9 @@ package main
 
 import (
 	"aws/ethereum-signer/internal/enclave"
+	"aws/ethereum-signer/internal/ethereum"
 	signerHMAC "aws/ethereum-signer/internal/hmac"
+	"aws/ethereum-signer/internal/keymanagement"
 	"aws/ethereum-signer/internal/metrics"
 	signerTypes "aws/ethereum-signer/internal/types"
 	"crypto/hmac"
@@ -25,11 +27,13 @@ import (
 )
 
 var version = "undefined"
+var validate *validator.Validate
 
 func main() {
 	log.Printf("starting signing enclave (%s)", version)
 
-	logLevel, err := log.ParseLevel(os.Getenv("LOG_LEVEL"))
+	//logLevel, err := log.ParseLevel(os.Getenv("LOG_LEVEL"))
+	logLevel, err := log.ParseLevel("INFO")
 	if err != nil {
 		log.Fatalf("LOG_LEVEL value (%s) could not be parsed: %s", os.Getenv("LOG_LEVEL"), err)
 	}
@@ -44,7 +48,7 @@ func main() {
 		log.Fatalf("PORT cannot be empty")
 	}
 
-	portInt, err := strconv.ParseUint(port, 10, 32)
+	portInt, err := strconv.Atoi(port)
 	if err != nil {
 		log.Fatalf("exception happened parsing provided port (%v) to int: %s", port, err)
 	}
@@ -105,14 +109,31 @@ func main() {
 			}
 
 			// todo memguard
-			plaintextB64, err := decryptCiphertext(enclavePayload.Credential, enclavePayload.EncryptedKey, portInt, region)
-			if err != nil {
-				enclave.HandleError(conn, fmt.Sprintf("exception happened decrypting passed cyphertext: %s", err), 500)
-				return
-			}
-			log.Debugf("decrypted ciphertext: %v", plaintextB64)
+			//kmstool_enclave_cli call
+			//kmstoolStart := time.Now()
+			//plaintextKMSToolB64, err := decryptCiphertext(enclavePayload.Credential, enclavePayload.EncryptedKey, portInt, region)
+			//if err != nil {
+			//	enclave.HandleError(conn, fmt.Sprintf("exception happened decrypting passed cyphertext: %s", err), 500)
+			//	return
+			//}
+			//kmstoolEnd := time.Since(kmstoolStart).Milliseconds()
+			//log.Printf("kmstool_enclave_cli duration (milliseconds): %v", kmstoolEnd)
+			//log.Debugf("plaintext (kmstool): %v", plaintextKMSToolB64)
 
-			userKey, err := parsePlaintext(plaintextB64)
+			// go sdk + openssl decrypt
+			attestationStart := time.Now()
+			plaintextSDKB64, err := keymanagement.DecryptCiphertextWithAttestation(enclavePayload.Credential, enclavePayload.EncryptedKey, listenerPort, region, map[string]string{})
+			if err != nil {
+				//
+				log.Errorf("exception happened decrypting passed cyphertext (attestation): %s", err)
+			}
+			attestationEnd := time.Since(attestationStart).Milliseconds()
+			log.Printf("attestation SDK duration (milliseconds): %v", attestationEnd)
+			log.Debugf("plaintext (sdk): %v", plaintextSDKB64)
+
+			//log.Printf("response equal: %v", plaintextKMSToolB64 == plaintextKMSToolB64)
+
+			userKey, err := keymanagement.ParsePlaintext(plaintextSDKB64)
 			if err != nil {
 				enclave.HandleError(conn, fmt.Sprintf("exception happened parsing b64 encoded KMS result : %s", err), 500)
 				return
@@ -135,8 +156,9 @@ func main() {
 				enclave.HandleError(conn, "calculated and provided HMAC are different", 403)
 				return
 			}
-
-			if !timestampInRange(enclavePayload.Timestamp, timestamp, 60) {
+			// validate the timestamp enclosed in the enclave payload. Timestamp cannot be older than 60 seconds, otherwise
+			// request is considered expired
+			if !signerHMAC.TimestampInRange(enclavePayload.Timestamp, timestamp, 60) {
 				enclave.HandleError(conn, "request has expired", 403)
 				return
 			}
@@ -170,7 +192,7 @@ func main() {
 					enclave.HandleError(conn, fmt.Sprintf("error happened converting provided UserOp hash to bytes: %s", err), 500)
 				}
 
-				userOpSignature, err := signUserOps(bytes, userKey.EthKey)
+				userOpSignature, err := ethereum.SignUserOps(bytes, userKey.EthKey)
 				if err != nil {
 					enclave.HandleError(conn, fmt.Sprintf("error happened signing UserOp hash: %s", err), 500)
 					return
@@ -190,7 +212,7 @@ func main() {
 					enclave.HandleError(conn, fmt.Sprintf("incoming EIP1559 transacation signing request could not be unmarshalld: %s", err), 400)
 					return
 				}
-				assembledTx := assembleEthereumTransaction(transactionPayload)
+				assembledTx := ethereum.AssembleTransaction(transactionPayload)
 
 				err = validate.Struct(transactionPayload)
 				if err != nil {
@@ -199,7 +221,7 @@ func main() {
 					return
 				}
 
-				signedTx, err := signEthereumTransaction(assembledTx, userKey.EthKey)
+				signedTx, err := ethereum.SignEthereumTransaction(assembledTx, userKey.EthKey)
 				if err != nil {
 					enclave.HandleError(conn, fmt.Sprintf("error happened signing Ethereum transaction: %s", err), 500)
 					return

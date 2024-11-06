@@ -8,16 +8,17 @@ require (
 	github.com/aws/aws-lambda-go v1.37.0
 	github.com/aws/aws-sdk-go-v2/config v1.18.45
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.10.10
-	github.com/aws/aws-sdk-go-v2/service/kms v1.20.2
+	github.com/aws/aws-sdk-go-v2/service/kms v1.21.0
 	github.com/ethereum/go-ethereum v1.13.15
 	github.com/gin-gonic/gin v1.10.0
 	github.com/google/uuid v1.3.0
 	github.com/mdlayher/vsock v1.2.0
 	github.com/sirupsen/logrus v1.9.0
-	golang.org/x/net v0.29.0 // indirect
+	golang.org/x/net v0.29.0
 )
 
 require (
+	github.com/hf/nsm v0.0.0-20220930140112-cd181bd646b9
 	github.com/mackerelio/go-osstat v0.2.4
 	github.com/prozz/aws-embedded-metrics-golang v1.2.0
 )
@@ -37,14 +38,20 @@ require (
 	github.com/crate-crypto/go-kzg-4844 v0.7.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/ethereum/c-kzg-4844 v0.4.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.2.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.5 // indirect
 	github.com/holiman/uint256 v1.2.4 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
 	github.com/mdlayher/socket v0.4.0 // indirect
 	github.com/mmcloughlin/addchain v0.4.0 // indirect
+	github.com/spf13/cobra v1.8.1 // indirect
+	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/supranational/blst v0.3.11 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
+	go.mozilla.org/pkcs7 v0.9.0 // indirect
 	golang.org/x/arch v0.10.0 // indirect
 	golang.org/x/exp v0.0.0-20240112132812-db7319d0e0e3 // indirect
 	golang.org/x/sync v0.8.0 // indirect
@@ -81,4 +88,8 @@ require (
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/text v0.18.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
+)
+
+replace (
+	go.mozilla.org/pkcs7 v0.9.0 => github.com/dpdornseifer/pkcs7 v0.9.1
 )

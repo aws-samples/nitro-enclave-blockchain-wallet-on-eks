@@ -440,7 +440,7 @@ class EksNitroWalletStack(Stack):
                 Repo.clone_from(
                     "https://github.com/aws/aws-nitro-enclaves-k8s-device-plugin.git",
                     repo_folder,
-                    branch="feature/update-device-plugin-increase-capacity",
+                    branch="main",
                 )
             except Exception as e:
                 print(

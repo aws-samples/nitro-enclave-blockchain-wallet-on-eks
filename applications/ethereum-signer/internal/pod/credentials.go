@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/aws-sdk-go-v2/service/sts/types"
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"os"
 )
 
@@ -27,7 +27,7 @@ func GetAWSWebIdentityCredentials(config *aws.Config, sessionName string) (*type
 		return &types.Credentials{}, errors.New("error happened looking up AWS_ROLE_ARN environment variable - value cannot be empty")
 	}
 
-	logrus.Debugf("loading webIdentityTokenFile from %s", webIdentityTokenFileLocation)
+	log.Debugf("loading webIdentityTokenFile from %s", webIdentityTokenFileLocation)
 	webIdentityTokenFile, err := os.ReadFile(webIdentityTokenFileLocation) // #nosec G304
 	if err != nil {
 		return &types.Credentials{}, err

@@ -8,7 +8,7 @@ package main
 
 import (
 	"aws/ethereum-signer/internal/enclave"
-	"aws/ethereum-signer/internal/keyFunctions"
+	"aws/ethereum-signer/internal/keymanagement"
 	"aws/ethereum-signer/internal/metrics"
 	signerTypes "aws/ethereum-signer/internal/types"
 	"context"
@@ -148,7 +148,7 @@ func main() {
 			cfg.Region = region
 
 			// leveraging AWS SDK for service integration, retry and exponential backoff come for free
-			keyID, err := keyFunctions.EncryptAndSaveKey(cfg, enclavePayload.KeyARN, enclavePayload.SecretsTable, plainKey, address)
+			keyID, err := keymanagement.EncryptAndSaveKey(cfg, enclavePayload.KeyARN, enclavePayload.SecretsTable, plainKey, address)
 			if err != nil {
 				enclave.HandleError(conn, fmt.Sprintf("exception happened encrypting and saving Ethereum key to DynamoDB: %s", err), 500)
 				return
