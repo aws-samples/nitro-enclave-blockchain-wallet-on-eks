@@ -25,6 +25,7 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.Version=v0.0.1 
     --aws-session-token SESSION_TOKEN \
     --ciphertext BASE64_ENCODED_TEXT \
     --encryption-context key1=value1,key2=value2 \
+    --key-id KEY_ID \
     --encryption-algorithm ALGORITHM
 ````
 

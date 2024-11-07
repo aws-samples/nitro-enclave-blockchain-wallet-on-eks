@@ -8,7 +8,6 @@ ENCLAVE_CPU_COUNT=2
 # based on eif file size
 ENCLAVE_MEMORY_SIZE=1500
 
-# || [[ "${LOG_LEVEL}" == "INFO" ]]
 if [[ "${LOG_LEVEL}" == "DEBUG" ]]; then
   debug="--debug-mode"
 else

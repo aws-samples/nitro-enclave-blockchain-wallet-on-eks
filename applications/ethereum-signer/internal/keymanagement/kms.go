@@ -67,7 +67,14 @@ func ParsePlaintext(kmsResultB64 string) (types.PlainKey, error) {
 	return userKey, nil
 }
 
-func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, ciphertextB64 string, vsockBasePort uint32, region string, encryptionContext map[string]string) (string, error) {
+// AdvancedDecOpts config struct for advanced decryption options
+type AdvancedDecOpts struct {
+	EncryptionContext   map[string]string
+	KeyId               string
+	EncryptionAlgorithm kmstypes.EncryptionAlgorithmSpec
+}
+
+func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, ciphertextB64 string, vsockBasePort uint32, region string, opts *AdvancedDecOpts) (string, error) {
 
 	// create ephemeral private/public key for communication with KMS
 	keyGenerationStart := time.Now()
@@ -109,7 +116,7 @@ func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, cipherte
 
 	// send decrypt request to KMS including the attestation doc
 	kmsRequestStart := time.Now()
-	ciphertextForRecipient, err := decryptCiphertextWithAttestation(config, ciphertext, attestationDocument, encryptionContext)
+	ciphertextForRecipient, err := decryptCiphertextWithAttestation(config, ciphertext, attestationDocument, opts)
 	if err != nil {
 		return "", err
 	}
@@ -130,18 +137,30 @@ func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, cipherte
 	return resultPlaintextB64, nil
 }
 
-func decryptCiphertextWithAttestation(cfg aws.Config, ciphertext []byte, attestation []byte, encryptionContext map[string]string) ([]byte, error) {
+func decryptCiphertextWithAttestation(cfg aws.Config, ciphertext []byte, attestation []byte, opts *AdvancedDecOpts) ([]byte, error) {
 
 	kmsClient := kms.NewFromConfig(cfg)
 
-	kmsResponse, err := kmsClient.Decrypt(context.TODO(), &kms.DecryptInput{
-		CiphertextBlob:    ciphertext,
-		EncryptionContext: encryptionContext,
-		Recipient: &kmstypes.RecipientInfo{
-			AttestationDocument:    attestation,
-			KeyEncryptionAlgorithm: "RSAES_OAEP_SHA_256",
-		},
-	})
+	// attestation doc including the public key
+	recipientInfo := &kmstypes.RecipientInfo{
+		AttestationDocument:    attestation,
+		KeyEncryptionAlgorithm: "RSAES_OAEP_SHA_256",
+	}
+
+	decryptInput := &kms.DecryptInput{
+		CiphertextBlob: ciphertext,
+		Recipient:      recipientInfo}
+
+	// process optional decrypt options and include in request
+	if opts.EncryptionContext != nil {
+		decryptInput.EncryptionContext = opts.EncryptionContext
+	}
+	if opts.KeyId != "" && opts.EncryptionAlgorithm != "" {
+		decryptInput.KeyId = &opts.KeyId
+		decryptInput.EncryptionAlgorithm = opts.EncryptionAlgorithm
+	}
+
+	kmsResponse, err := kmsClient.Decrypt(context.TODO(), decryptInput)
 	if err != nil {
 		return nil, fmt.Errorf("exception happened decrypting payload via KMS: %s", err)
 	}

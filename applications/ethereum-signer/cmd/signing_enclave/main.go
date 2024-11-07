@@ -32,8 +32,7 @@ var validate *validator.Validate
 func main() {
 	log.Printf("starting signing enclave (%s)", version)
 
-	//logLevel, err := log.ParseLevel(os.Getenv("LOG_LEVEL"))
-	logLevel, err := log.ParseLevel("INFO")
+	logLevel, err := log.ParseLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
 		log.Fatalf("LOG_LEVEL value (%s) could not be parsed: %s", os.Getenv("LOG_LEVEL"), err)
 	}
@@ -109,20 +108,9 @@ func main() {
 			}
 
 			// todo memguard
-			//kmstool_enclave_cli call
-			//kmstoolStart := time.Now()
-			//plaintextKMSToolB64, err := decryptCiphertext(enclavePayload.Credential, enclavePayload.EncryptedKey, portInt, region)
-			//if err != nil {
-			//	enclave.HandleError(conn, fmt.Sprintf("exception happened decrypting passed cyphertext: %s", err), 500)
-			//	return
-			//}
-			//kmstoolEnd := time.Since(kmstoolStart).Milliseconds()
-			//log.Printf("kmstool_enclave_cli duration (milliseconds): %v", kmstoolEnd)
-			//log.Debugf("plaintext (kmstool): %v", plaintextKMSToolB64)
-
 			// go sdk + openssl decrypt
 			attestationStart := time.Now()
-			plaintextSDKB64, err := keymanagement.DecryptCiphertextWithAttestation(enclavePayload.Credential, enclavePayload.EncryptedKey, listenerPort, region, map[string]string{})
+			plaintextSDKB64, err := keymanagement.DecryptCiphertextWithAttestation(enclavePayload.Credential, enclavePayload.EncryptedKey, listenerPort, region, &keymanagement.AdvancedDecOpts{})
 			if err != nil {
 				//
 				log.Errorf("exception happened decrypting passed cyphertext (attestation): %s", err)

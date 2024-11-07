@@ -5,6 +5,7 @@ import (
 	signerTypes "aws/ethereum-signer/internal/types"
 	"encoding/base64"
 	"fmt"
+	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 	"github.com/spf13/cobra"
 	"os"
 )
@@ -65,6 +66,13 @@ Build Time: ` + BuildTime)
 				return fmt.Errorf("--encryption-algorithm is required when --key-id is set")
 			}
 
+			if decryptCfg.encryptionAlgorithm != "" {
+				_, err := supportedEncryptionAlgorithms(decryptCfg.encryptionAlgorithm)
+				if err != nil {
+					return fmt.Errorf("invalid encryption algorithm: %v", err)
+				}
+			}
+
 			if decryptCfg.awsSessionToken == "" || decryptCfg.awsAccessKeyID == "" || decryptCfg.awsSecretAccessKey == "" {
 				return fmt.Errorf("AWS credentials are required, --aws-access-key-id, --aws-secret-access-key, --aws-session-token have to be set")
 			}
@@ -87,8 +95,8 @@ Build Time: ` + BuildTime)
 	decryptCmd.Flags().StringVar(&decryptCfg.awsSessionToken, "aws-session-token", "", "Session token associated with the access key ID")
 	decryptCmd.Flags().StringVar(&decryptCfg.ciphertext, "ciphertext", "", "Base64-encoded ciphertext that need to decrypt")
 	decryptCmd.Flags().StringVar(&decryptCfg.keyID, "key-id", "", "Decrypt key id (for symmetric keys)")
-	decryptCmd.Flags().StringVar(&decryptCfg.encryptionAlgorithm, "encryption-algorithm", "", "Encryption algorithm for ciphertext")
-	decryptCmd.Flags().StringToStringVar(&decryptCfg.encryptionContext, "encryption-context", map[string]string{}, "Encryption context key-value pairs")
+	decryptCmd.Flags().StringVar(&decryptCfg.encryptionAlgorithm, "encryption-algorithm", "", "Encryption algorithm for ciphertext, defaults to SYMMETRIC_DEFAULT (only option for symmetric keys")
+	decryptCmd.Flags().StringToStringVar(&decryptCfg.encryptionContext, "encryption-context", nil, "Encryption context key-value pairs")
 
 	rootCmd.AddCommand(decryptCmd)
 
@@ -119,7 +127,15 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 		Token:           decryptCfg.awsSessionToken,
 	}
 
-	plaintextB64, err := keymanagement.DecryptCiphertextWithAttestation(credentials, decryptCfg.ciphertext, uint32(decryptCfg.proxyPort), decryptCfg.region, make(map[string]string)) // #nosec G115
+	// advanced decrypt options
+	encALgo, err := supportedEncryptionAlgorithms(decryptCfg.encryptionAlgorithm)
+	advDecOpts := keymanagement.AdvancedDecOpts{
+		EncryptionAlgorithm: encALgo,
+		EncryptionContext:   decryptCfg.encryptionContext,
+		KeyId:               decryptCfg.keyID,
+	}
+
+	plaintextB64, err := keymanagement.DecryptCiphertextWithAttestation(credentials, decryptCfg.ciphertext, uint32(decryptCfg.proxyPort), decryptCfg.region, &advDecOpts) // #nosec G115
 	if err != nil {
 		return fmt.Errorf("failed to decrypt ciphertext: %v", err)
 	}
@@ -129,7 +145,21 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// Helper function to mask sensitive information
+// supported encryption algorithms
+func supportedEncryptionAlgorithms(encryptionAlgorithm string) (kmstypes.EncryptionAlgorithmSpec, error) {
+	switch encryptionAlgorithm {
+	case "SYMMETRIC_DEFAULT":
+		return kmstypes.EncryptionAlgorithmSpecSymmetricDefault, nil
+	case "RSAES_OAEP_SHA_1":
+		return kmstypes.EncryptionAlgorithmSpecRsaesOaepSha1, nil
+	case "RSAES_OAEP_SHA_256":
+		return kmstypes.EncryptionAlgorithmSpecRsaesOaepSha256, nil
+	default:
+		return "", fmt.Errorf("only SYMMETRIC_DEFAULT, RSAES_OAEP_SHA_1 and RSAES_OAEP_SHA_256 are supported. Please see https://github.com/aws/aws-nitro-enclaves-sdk-c/blob/main/docs/kms-apis/Decrypt.md#encryptionalgorithm for more information: %s", encryptionAlgorithm)
+	}
+}
+
+// helper function to mask sensitive information
 func maskString(s string) string {
 	if s == "" {
 		return ""
