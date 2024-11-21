@@ -31,12 +31,14 @@ var validate *validator.Validate
 var version = "undefined"
 
 func main() {
-	log.Printf("starting key generation enclave (%s)", version)
+	log.Infof("starting key generation enclave (%s)", version)
 
 	logLevel, err := log.ParseLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
 		log.Fatalf("LOG_LEVEL value (%s) could not be parsed: %s", os.Getenv("LOG_LEVEL"), err)
 	}
+	log.Infof("LOG_LEVEL=%s", logLevel)
+	log.SetLevel(logLevel)
 
 	region := os.Getenv("REGION")
 	if region == "" {
@@ -67,8 +69,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("exception happened openening vsock listener on port %v and contextID %v: %s", listenerPort, contextID, err)
 	}
-
-	log.SetLevel(logLevel)
 
 	metricsClient := metrics.NewMetricsClient(3, listenerPort+metrics.PortOffset, 10*time.Second)
 	metricsClient.Start()

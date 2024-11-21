@@ -16,15 +16,17 @@ import (
 	"strconv"
 )
 
+// todo add build time and version tag
 var version = "undefined"
 
 func main() {
-	log.Printf("starting signing pod (%s)", version)
+	log.Infof("starting signing pod (%s)", version)
 
 	logLevel, err := log.ParseLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
 		log.Fatalf("LOG_LEVEL value (%s) could not be parsed: %s", os.Getenv("LOG_LEVEL"), err)
 	}
+	log.Infof("LOG_LEVEL=%s", logLevel)
 
 	certFile := os.Getenv("CERT_FILE")
 	if certFile == "" {

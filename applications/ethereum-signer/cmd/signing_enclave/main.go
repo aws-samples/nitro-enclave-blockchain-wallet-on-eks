@@ -30,12 +30,14 @@ var version = "undefined"
 var validate *validator.Validate
 
 func main() {
-	log.Printf("starting signing enclave (%s)", version)
+	log.Infof("starting signing enclave (%s)", version)
 
 	logLevel, err := log.ParseLevel(os.Getenv("LOG_LEVEL"))
 	if err != nil {
 		log.Fatalf("LOG_LEVEL value (%s) could not be parsed: %s", os.Getenv("LOG_LEVEL"), err)
 	}
+	log.Infof("LOG_LEVEL=%s", logLevel)
+	log.SetLevel(logLevel)
 
 	region := os.Getenv("REGION")
 	if region == "" {
@@ -61,8 +63,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("exception happened openening vsock listener on port %v and contextID %v: %s", listenerPort, contextID, err)
 	}
-
-	log.SetLevel(logLevel)
 
 	metricsClient := metrics.NewMetricsClient(3, listenerPort+metrics.PortOffset, 10*time.Second)
 	metricsClient.Start()
@@ -108,7 +108,6 @@ func main() {
 			}
 
 			// todo memguard
-			// go sdk + openssl decrypt
 			attestationStart := time.Now()
 			plaintextSDKB64, err := keymanagement.DecryptCiphertextWithAttestation(enclavePayload.Credential, enclavePayload.EncryptedKey, listenerPort, region, &keymanagement.AdvancedDecOpts{})
 			if err != nil {
@@ -116,10 +115,8 @@ func main() {
 				log.Errorf("exception happened decrypting passed cyphertext (attestation): %s", err)
 			}
 			attestationEnd := time.Since(attestationStart).Milliseconds()
-			log.Printf("attestation SDK duration (milliseconds): %v", attestationEnd)
+			log.Debugf("attestation SDK duration (milliseconds): %v", attestationEnd)
 			log.Debugf("plaintext (sdk): %v", plaintextSDKB64)
-
-			//log.Printf("response equal: %v", plaintextKMSToolB64 == plaintextKMSToolB64)
 
 			userKey, err := keymanagement.ParsePlaintext(plaintextSDKB64)
 			if err != nil {

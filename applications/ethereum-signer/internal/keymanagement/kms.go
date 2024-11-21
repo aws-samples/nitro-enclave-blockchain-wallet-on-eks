@@ -10,7 +10,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
@@ -24,30 +23,6 @@ import (
 	"golang.org/x/net/context"
 	"time"
 )
-
-// todo move type definition to outside
-type contentInfo struct {
-	ContentType asn1.ObjectIdentifier
-	Content     asn1.RawValue `asn1:"explicit,optional,tag:0"`
-}
-
-type keyTransRecipientInfo struct {
-	Version                int
-	Rid                    asn1.RawValue `asn1:"choice"`
-	KeyEncryptionAlgorithm pkix.AlgorithmIdentifier
-	EncryptedKey           []byte
-}
-
-// parse the EnvelopedData structure
-type envelopedDataStruct struct {
-	Version              int
-	RecipientInfos       []keyTransRecipientInfo `asn1:"set"`
-	EncryptedContentInfo struct {
-		ContentType                asn1.ObjectIdentifier
-		ContentEncryptionAlgorithm pkix.AlgorithmIdentifier
-		EncryptedContent           []byte `asn1:"explicit,tag:0"`
-	}
-}
 
 func ParsePlaintext(kmsResultB64 string) (types.PlainKey, error) {
 	log.Debugf("raw kmsResultB64: %v", kmsResultB64)
@@ -78,6 +53,7 @@ func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, cipherte
 
 	// create ephemeral private/public key for communication with KMS
 	keyGenerationStart := time.Now()
+	// todo make optional
 	ephemeralKey, err := GenerateEphemeralRSAKey()
 	if err != nil {
 		return "", err
@@ -193,12 +169,12 @@ func decryptCiphertextForRecipient(envelopedData []byte, privateKey *rsa.Private
 	if err != nil {
 		return nil, err
 	}
-	var info contentInfo
+	var info types.ContentInfo
 	if _, err := asn1.Unmarshal(der, &info); err != nil {
 		return nil, fmt.Errorf("failed to parse CMS: %v", err)
 	}
 
-	var ed envelopedDataStruct
+	var ed types.EnvelopedDataStruct
 	if _, err := asn1.Unmarshal(info.Content.Bytes, &ed); err != nil {
 		return nil, fmt.Errorf("failed to parse EnvelopedData: %v", err)
 	}

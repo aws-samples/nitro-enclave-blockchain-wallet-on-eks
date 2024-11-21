@@ -11,8 +11,9 @@ external_key_generation_flag=${2:-false}
 
 eif_file="./applications/ethereum-signer/third_party/eif/${CDK_PREFIX}${application}_enclave.eif"
 
-# compare to upper case debug flag, bash >v4.x required
-if [[ "${LOG_LEVEL^^}" == "DEBUG" ]]; then
+# compare to upper case debug flag
+log_level_upper=$(echo "${LOG_LEVEL}" | tr '[:lower:]' '[:upper:]')
+if [[ "${log_level_upper}" == "DEBUG" ]]; then
   pcr_0="000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 else
   measurement=$(./scripts/get_pcr0.sh "${eif_file}")

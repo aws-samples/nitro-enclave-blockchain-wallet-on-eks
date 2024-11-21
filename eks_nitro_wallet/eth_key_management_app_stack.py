@@ -95,6 +95,7 @@ class NitroWalletAppStack(Stack):
                 subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
             ),
             security_groups=[signer_client_sg],
+            architecture=_lambda.Architecture.X86_64
         )
         kms_key.grant_encrypt(invoke_lambda)
         secrets_table.grant_write_data(invoke_lambda)
@@ -183,6 +184,7 @@ class NitroWalletAppStack(Stack):
             string_value=rest_api_role.role_arn,
         )
 
+        #
         signer_enclave_image = s3_assets.Asset(
             self,
             "signerEnclaveImage",

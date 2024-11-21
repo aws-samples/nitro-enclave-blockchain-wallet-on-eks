@@ -64,4 +64,5 @@ vsock-proxy  "${vsock_port_1}" kms."${AWS_REGION}".amazonaws.com 443 --config ./
 vsock-proxy "${vsock_port_2}" dynamodb."${AWS_REGION}".amazonaws.com 443 --config ./vsock-proxy.yaml -w 20 &
 
 generate_tls_artifact "${FQDN}"
+
 ./key-generator_pod

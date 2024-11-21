@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-extldflags "-static"' -ldfla
 ## deploy image
 FROM debian:bookworm-slim AS prod
 RUN apt-get update && \
-    apt-get install -y ca-certificates && \
+    apt-get install -y ca-certificates procps && \
     apt-get clean && \
     apt-get autoremove --yes && \
     rm -rf /var/lib/apt/lists/*
@@ -33,6 +33,8 @@ ENV PORT=$VSOCK_BASE_PORT_ARG
 
 WORKDIR /app
 
+
+COPY ./cmd/signing_enclave/run.sh /app
 COPY --from=build /app/signing_enclave /app/signing_enclave
 
-CMD ["/app/signing_enclave"]
+CMD ["sh", "/app/run.sh"]

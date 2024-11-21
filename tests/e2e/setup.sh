@@ -5,6 +5,9 @@
 set +x
 set -e
 
+# https://github.com/aws/aws-cdk/issues/30258
+export BUILDX_NO_DEFAULT_ATTESTATIONS=1
+
 #source tests/e2e/.env
 
 # files need to be present to allow EKS stack to synthesize
@@ -21,6 +24,7 @@ touch "applications/ethereum-signer/third_party/eif/${CDK_PREFIX}ethereum-key-ge
 ./scripts/build_enclave_image.sh ethereum-signer
 
 # eks overly permissive trust policy issue (cdk version) causes issue / cdk acknowledge 25674
+# https://github.com/aws/aws-cdk/issues/30258
 cdk deploy "${CDK_PREFIX}EksNitroCluster" --verbose -O "${CDK_PREFIX}EksClusterOutput.json" --output "${CDK_PREFIX}cdk.out" --require-approval=never
 # todo check wait / wait -n for bg processes to have finished
 #wait

@@ -129,6 +129,7 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	// advanced decrypt options
 	encALgo, err := supportedEncryptionAlgorithms(decryptCfg.encryptionAlgorithm)
+	// todo add optional key path - ensure that keypath in enclave does not cause problems with read only fs
 	advDecOpts := keymanagement.AdvancedDecOpts{
 		EncryptionAlgorithm: encALgo,
 		EncryptionContext:   decryptCfg.encryptionContext,

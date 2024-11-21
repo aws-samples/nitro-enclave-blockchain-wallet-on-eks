@@ -47,7 +47,7 @@ deployment_params=$(
     --query "Parameters[*].{Name:Name,Value:Value}" | jq 'INDEX(.Name)'
 )
 
-domain=$(echo "${deployment_params}" | jq -r '."/'${CDK_PREFIX}'eks/nitro/ethereum/domain".Value')
+domain=$(echo "${deployment_params}" | jq -r '."/'${CDK_PREFIX}'eks/nitro/ethereum/domain".Value' | tr '[:upper:]' '[:lower:]')
 key_arn=$(echo "${deployment_params}" | jq -r '."/'${CDK_PREFIX}'app/ethereum/key_id".Value')
 
 generator_app_name="ethereum-key-generator"
@@ -56,14 +56,14 @@ generator_pod_image_uri=$(echo "${deployment_params}" | jq -r '."/'${CDK_PREFIX}
 
 generator_enclave_image_uri_ssm="/${CDK_PREFIX}app/ethereum/generator_enclave/eif_uri"
 generator_pod_service_account=$(echo "${deployment_params}" | jq -r '."/'${CDK_PREFIX}'app/ethereum/generator_pod/service_account_name".Value')
-generator_fqdn="${generator_app_name}.${domain,,}"
+generator_fqdn="${generator_app_name}.${domain}"
 generator_vsock_base_port=$(grep "ethereum-key-generator" < "${CDK_PREFIX}vsock_base_port_assignments.tmp" | cut -d ":" -f 2 | tail -n 1)
 
 signer_app_name="ethereum-signer"
 signer_pod_image_uri=$(echo "${deployment_params}" | jq -r '."/'${CDK_PREFIX}'app/ethereum/signer_pod/image_uri".Value')
 signer_enclave_image_uri_ssm="/${CDK_PREFIX}app/ethereum/signer_enclave/eif_uri"
 signer_pod_service_account=$(echo "${deployment_params}" | jq -r '."/'${CDK_PREFIX}'app/ethereum/signer_pod/service_account_name".Value')
-signer_fqdn="${signer_app_name}.${domain,,}"
+signer_fqdn="${signer_app_name}.${domain}"
 signer_vsock_base_port=$(grep "ethereum-signer" < "${CDK_PREFIX}vsock_base_port_assignments.tmp" | cut -d ":" -f 2 | tail -n 1)
 
 log_level=$(echo "${deployment_params}" | jq -r '."/'${CDK_PREFIX}'app/ethereum/log_level".Value')

@@ -9,6 +9,16 @@ application=${1:-none}
 valid_values="ethereum-key-generator ethereum-signer all none"
 SCRIPTS_FOLDER="scripts"
 
+# trigger cleanup function in trap
+trap cleanup EXIT ERR
+
+cleanup() {
+  # state bloat in asset folder because application folder including images is copied over
+  rm -rf ${CDK_PREFIX}cdk.out/asset.*
+  docker rmi $(docker images | grep -e cdkasset -e ${CDK_DEPLOY_REGION}) 2>/dev/null || true
+}
+
+
 if [[ ! "${valid_values}" =~ (" "|^)${application}(" "|$) ]]; then
   echo "just empty or one of the following values is supported as argument: ${valid_values}"
   exit 1
@@ -28,5 +38,6 @@ elif [[ "${application}" == "all" ]]; then
 #  wait
 fi
 
-cdk deploy ${CDK_PREFIX}EthKeyManagementApp --verbose --output "${CDK_PREFIX}cdk.out" --require-approval=never
+BUILDX_NO_DEFAULT_ATTESTATIONS=1 cdk deploy ${CDK_PREFIX}EthKeyManagementApp --verbose --output "${CDK_PREFIX}cdk.out" --require-approval=never
 ./${SCRIPTS_FOLDER}/apply_deployment_spec.sh
+

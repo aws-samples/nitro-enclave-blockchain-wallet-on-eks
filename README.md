@@ -513,6 +513,14 @@ load balancer distributes the requests to the pods in a round-robin fashion. The
 
 ### Troubleshooting
 
+#### Docker Image Pull Error (failed to unpack image on snapshotter overlayfs)
+```shell
+"CannotPullContainerError: ref pull has been retried 1 time(s): failed to unpack image on snapshotter overlayfs: failed to extract layer sha256:c02342326b04a05fa0fc4c703c4aaa8ffb46cc0f2eda269c4a0dee53c8296182: failed to get stream processor for application/vnd.in-toto+json: no processor for media-type: unknown"
+```
+**Soulution**
+* Issue might be related to `https://github.com/aws/aws-cdk/issues/30258`
+* Set `BUILDX_NO_DEFAULT_ATTESTATIONS=1` in your environment e.g. `export BUILDX_NO_DEFAULT_ATTESTATIONS=1`
+
 #### Docker Image Pull Error
 ```shell
 Start building the Enclave Image...
