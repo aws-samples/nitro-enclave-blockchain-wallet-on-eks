@@ -109,13 +109,13 @@ func main() {
 
 			// todo memguard
 			attestationStart := time.Now()
-			plaintextSDKB64, err := keymanagement.DecryptCiphertextWithAttestation(enclavePayload.Credential, enclavePayload.EncryptedKey, listenerPort, region, &keymanagement.AdvancedDecOpts{})
+			plaintextSDKB64, err := keymanagement.DecryptCiphertextWithAttestation(enclavePayload.Credential, enclavePayload.EncryptedKey, listenerPort, region, &keymanagement.AdvancedDecOpts{EphemeralRSAKey: false})
 			if err != nil {
-				//
-				log.Errorf("exception happened decrypting passed cyphertext (attestation): %s", err)
+				enclave.HandleError(conn, fmt.Sprintf("exception happened decrypting passed cyphertext (attestation): %s", err), 500)
+				return
 			}
 			attestationEnd := time.Since(attestationStart).Milliseconds()
-			log.Debugf("attestation SDK duration (milliseconds): %v", attestationEnd)
+			log.Infof("attestation SDK duration (milliseconds): %v", attestationEnd)
 			log.Debugf("plaintext (sdk): %v", plaintextSDKB64)
 
 			userKey, err := keymanagement.ParsePlaintext(plaintextSDKB64)

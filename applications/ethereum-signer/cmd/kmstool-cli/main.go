@@ -28,6 +28,7 @@ type DecryptConfig struct {
 	keyID               string
 	encryptionAlgorithm string
 	encryptionContext   map[string]string
+	ephemeralKeySwitch  bool
 }
 
 var decryptCfg DecryptConfig
@@ -97,6 +98,12 @@ Build Time: ` + BuildTime)
 	decryptCmd.Flags().StringVar(&decryptCfg.keyID, "key-id", "", "Decrypt key id (for symmetric keys)")
 	decryptCmd.Flags().StringVar(&decryptCfg.encryptionAlgorithm, "encryption-algorithm", "", "Encryption algorithm for ciphertext, defaults to SYMMETRIC_DEFAULT (only option for symmetric keys")
 	decryptCmd.Flags().StringToStringVar(&decryptCfg.encryptionContext, "encryption-context", nil, "Encryption context key-value pairs")
+	decryptCmd.Flags().BoolVar(&decryptCfg.ephemeralKeySwitch, "ephemeral-key", true,
+		"If true, the RSA key used in the Recipient field is regenerated with every run. "+
+			"If switch is set to false, key will be sourced from RSA_PRIVATE_KEY env variable. "+
+			"If variable is empty, key will just be generated once and stored in RSA_PRIVATE_KEY. "+
+			"RSA key is used by KMS in the CiphertextForRecipient structure which is a RecipientInfo structure, "+
+			"as described in RFC5652 Section 6")
 
 	rootCmd.AddCommand(decryptCmd)
 
@@ -129,11 +136,11 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	// advanced decrypt options
 	encALgo, err := supportedEncryptionAlgorithms(decryptCfg.encryptionAlgorithm)
-	// todo add optional key path - ensure that keypath in enclave does not cause problems with read only fs
 	advDecOpts := keymanagement.AdvancedDecOpts{
 		EncryptionAlgorithm: encALgo,
 		EncryptionContext:   decryptCfg.encryptionContext,
 		KeyId:               decryptCfg.keyID,
+		EphemeralRSAKey:     decryptCfg.ephemeralKeySwitch,
 	}
 
 	plaintextB64, err := keymanagement.DecryptCiphertextWithAttestation(credentials, decryptCfg.ciphertext, uint32(decryptCfg.proxyPort), decryptCfg.region, &advDecOpts) // #nosec G115

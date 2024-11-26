@@ -47,14 +47,14 @@ type AdvancedDecOpts struct {
 	EncryptionContext   map[string]string
 	KeyId               string
 	EncryptionAlgorithm kmstypes.EncryptionAlgorithmSpec
+	EphemeralRSAKey     bool // set to FALSE to use env based key persistence
 }
 
 func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, ciphertextB64 string, vsockBasePort uint32, region string, opts *AdvancedDecOpts) (string, error) {
 
 	// create ephemeral private/public key for communication with KMS
 	keyGenerationStart := time.Now()
-	// todo make optional
-	ephemeralKey, err := GenerateEphemeralRSAKey()
+	ephemeralKey, err := ProvideRSAKey(opts.EphemeralRSAKey)
 	if err != nil {
 		return "", err
 	}
