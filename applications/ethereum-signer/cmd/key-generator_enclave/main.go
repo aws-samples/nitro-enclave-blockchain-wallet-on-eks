@@ -7,17 +7,15 @@ SPDX-License-Identifier: MIT-0
 package main
 
 import (
+	aws2 "aws/ethereum-signer/internal/aws"
 	"aws/ethereum-signer/internal/enclave"
 	"aws/ethereum-signer/internal/keymanagement"
 	"aws/ethereum-signer/internal/metrics"
 	signerTypes "aws/ethereum-signer/internal/types"
-	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-playground/validator/v10"
 	"github.com/mdlayher/vsock"
@@ -139,16 +137,19 @@ func main() {
 				Secret: enclavePayload.Secret,
 			}
 
-			cfg, err := config.LoadDefaultConfig(context.TODO(),
-				config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(enclavePayload.Credential.AccessKeyID, enclavePayload.Credential.SecretAccessKey, enclavePayload.Credential.Token)))
+			kmsProvider, err := keymanagement.NewAWSKMSProvider(enclavePayload.Credential, region, aws2.TCP, 0, 0)
 			if err != nil {
-				enclave.HandleError(conn, fmt.Sprintf("configuration error: %s", err), 500)
+				enclave.HandleError(conn, fmt.Sprintf("exception happened creating KMS provider: %s", err), 500)
 				return
 			}
-			cfg.Region = region
+			ddbProvider, err := keymanagement.NewAWSDDBProvider(enclavePayload.Credential, region, aws2.TCP, 0, 0)
+			if err != nil {
+				enclave.HandleError(conn, fmt.Sprintf("exception happened creating DDB provider: %s", err), 500)
+				return
+			}
 
 			// leveraging AWS SDK for service integration, retry and exponential backoff come for free
-			keyID, err := keymanagement.EncryptAndSaveKey(cfg, enclavePayload.KeyARN, enclavePayload.SecretsTable, plainKey, address)
+			keyID, err := keymanagement.EncryptAndSaveKey(kmsProvider, ddbProvider, enclavePayload.KeyARN, enclavePayload.SecretsTable, plainKey, address)
 			if err != nil {
 				enclave.HandleError(conn, fmt.Sprintf("exception happened encrypting and saving Ethereum key to DynamoDB: %s", err), 500)
 				return

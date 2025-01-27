@@ -8,7 +8,7 @@ requests from inside AWS Nitro Enclaves leveraging cryptographic attestation.
 Change with your terminal into this folder and execute the `go build` command:
 
 ```shell
-cd applications/ethere um-signer/cmd/kmstool-cli
+cd applications/ethereum-signer/cmd/kmstool-cli
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.Version=v0.0.1 -X main.BuildTime=$(date -u +'%Y-%m-%d_%H:%M:%S')" -o kmstool-cli
 ```
 

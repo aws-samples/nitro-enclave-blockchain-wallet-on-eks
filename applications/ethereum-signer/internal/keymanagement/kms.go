@@ -10,12 +10,11 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 	log "github.com/sirupsen/logrus"
@@ -23,24 +22,6 @@ import (
 	"golang.org/x/net/context"
 	"time"
 )
-
-func ParsePlaintext(kmsResultB64 string) (types.PlainKey, error) {
-	log.Debugf("raw kmsResultB64: %v", kmsResultB64)
-
-	kmsResult, err := base64.StdEncoding.DecodeString(kmsResultB64)
-	if err != nil {
-		return types.PlainKey{}, fmt.Errorf("failed to decode kmsResultB64: %v", err)
-	}
-
-	var userKey types.PlainKey
-
-	err = json.Unmarshal(kmsResult, &userKey)
-	if err != nil {
-		return types.PlainKey{}, fmt.Errorf("failed to unmarshal kmsResult: %v", err)
-	}
-
-	return userKey, nil
-}
 
 // AdvancedDecOpts config struct for advanced decryption options
 type AdvancedDecOpts struct {
@@ -50,7 +31,41 @@ type AdvancedDecOpts struct {
 	EphemeralRSAKey     bool // set to FALSE to use env based key persistence
 }
 
-func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, ciphertextB64 string, vsockBasePort uint32, region string, opts *AdvancedDecOpts) (string, error) {
+// Interfaces for dependencies
+
+type KMSProvider interface {
+	Decrypt(ctx context.Context, params *kms.DecryptInput, optFns ...func(*kms.Options)) (*kms.DecryptOutput, error)
+	Encrypt(ctx context.Context, params *kms.EncryptInput, optFns ...func(*kms.Options)) (*kms.EncryptOutput, error)
+}
+
+type AWSKMSProvider struct {
+	client *kms.Client
+}
+
+func NewAWSKMSProvider(credentials types.AWSCredentials, region string, connectionType aws2.ConnectionType, contextId uint32, port uint32) (*AWSKMSProvider, error) {
+	cfg, err := aws2.EnclaveSDKConfig(credentials, region, aws2.NewConnectionConfig(connectionType, contextId, port))
+	if err != nil {
+		return nil, fmt.Errorf("unable to load SDK config: %v", err)
+	}
+
+	return &AWSKMSProvider{
+		client: kms.NewFromConfig(cfg),
+	}, nil
+}
+
+func (p *AWSKMSProvider) Decrypt(ctx context.Context, params *kms.DecryptInput, optFns ...func(*kms.Options)) (*kms.DecryptOutput, error) {
+	return p.client.Decrypt(ctx, params, optFns...)
+}
+
+func (p *AWSKMSProvider) Encrypt(ctx context.Context, params *kms.EncryptInput, optFns ...func(*kms.Options)) (*kms.EncryptOutput, error) {
+	return p.client.Encrypt(ctx, params, optFns...)
+}
+
+func DecryptCiphertextWithAttestation(ciphertextB64 string, opts *AdvancedDecOpts, attestationProvider attestation.AttestationProvider, kmsProvider KMSProvider) (string, error) {
+
+	if opts == nil {
+		opts = &AdvancedDecOpts{}
+	}
 
 	// create ephemeral private/public key for communication with KMS
 	keyGenerationStart := time.Now()
@@ -68,7 +83,8 @@ func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, cipherte
 	// include ephemeral public key in attestation doc and thus provide key to KMS for CMS encryption (RFC5652 section 6)
 	// nonce and userData is not required/processed by KMS
 	attestationStart := time.Now()
-	attestationDocument, err := attestation.GetAttestationDoc(nil, nil, derPublicKey)
+
+	attestationDocument, err := attestationProvider.GetAttestationDoc(nil, nil, derPublicKey)
 	if err != nil {
 		log.Errorf("failed to get attestation document: %v", err)
 		return "", err
@@ -82,17 +98,9 @@ func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, cipherte
 		return "", err
 	}
 
-	configGenerationStart := time.Now()
-	config, err := aws2.EnclaveSDKConfig(credentials, region, aws2.NewConnectionConfig(aws2.VSOCK, 3, vsockBasePort))
-	if err != nil {
-		return "", err
-	}
-	configGenerationEnd := time.Since(configGenerationStart).Milliseconds()
-	log.Debugf("aws config generation took %v ms", configGenerationEnd)
-
 	// send decrypt request to KMS including the attestation doc
 	kmsRequestStart := time.Now()
-	ciphertextForRecipient, err := decryptCiphertextWithAttestation(config, ciphertext, attestationDocument, opts)
+	ciphertextForRecipient, err := decryptCiphertextWithAttestationViaKMS(ciphertext, attestationDocument, opts, kmsProvider)
 	if err != nil {
 		return "", err
 	}
@@ -101,6 +109,8 @@ func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, cipherte
 
 	// any value in providing openssl based solution here?
 	decryptRecipientCiphertext := time.Now()
+	log.Debugf("ciphertext for recipient: %v", base64.StdEncoding.EncodeToString(ciphertextForRecipient))
+	log.Debugf("ephemeral private key: %v", base64.StdEncoding.EncodeToString(x509.MarshalPKCS1PrivateKey(ephemeralKey)))
 	resultPlaintext, err := decryptCiphertextForRecipient(ciphertextForRecipient, ephemeralKey)
 	if err != nil {
 		return "", err
@@ -113,9 +123,7 @@ func DecryptCiphertextWithAttestation(credentials types.AWSCredentials, cipherte
 	return resultPlaintextB64, nil
 }
 
-func decryptCiphertextWithAttestation(cfg aws.Config, ciphertext []byte, attestation []byte, opts *AdvancedDecOpts) ([]byte, error) {
-
-	kmsClient := kms.NewFromConfig(cfg)
+func decryptCiphertextWithAttestationViaKMS(ciphertext []byte, attestation []byte, opts *AdvancedDecOpts, kmsProvider KMSProvider) ([]byte, error) {
 
 	// attestation doc including the public key
 	recipientInfo := &kmstypes.RecipientInfo{
@@ -136,7 +144,7 @@ func decryptCiphertextWithAttestation(cfg aws.Config, ciphertext []byte, attesta
 		decryptInput.EncryptionAlgorithm = opts.EncryptionAlgorithm
 	}
 
-	kmsResponse, err := kmsClient.Decrypt(context.TODO(), decryptInput)
+	kmsResponse, err := kmsProvider.Decrypt(context.TODO(), decryptInput)
 	if err != nil {
 		return nil, fmt.Errorf("exception happened decrypting payload via KMS: %s", err)
 	}

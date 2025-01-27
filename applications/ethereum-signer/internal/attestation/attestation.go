@@ -6,6 +6,16 @@ import (
 	"github.com/hf/nsm/request"
 )
 
+type AttestationProvider interface {
+	GetAttestationDoc(nonce []byte, userData []byte, publicKey []byte) ([]byte, error)
+}
+
+type NitroAttestationProvider struct{}
+
+func (p *NitroAttestationProvider) GetAttestationDoc(nonce []byte, userData []byte, publicKey []byte) ([]byte, error) {
+	return GetAttestationDoc(nonce, userData, publicKey)
+}
+
 func GetAttestationDoc(nonce, userData, publicKey []byte) ([]byte, error) {
 	sess, err := nsm.OpenDefaultSession()
 	defer func(sess *nsm.Session) {
@@ -35,9 +45,6 @@ func GetAttestationDoc(nonce, userData, publicKey []byte) ([]byte, error) {
 	if nil == res.Attestation || nil == res.Attestation.Document {
 		return nil, errors.New("NSM device did not return an attestation")
 	}
-
-	//var attestationDocB64 []byte
-	//base64.StdEncoding.Encode(attestationDocB64, res.Attestation.Document)
 
 	return res.Attestation.Document, nil
 }

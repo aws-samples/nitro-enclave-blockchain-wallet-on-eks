@@ -7,6 +7,8 @@ SPDX-License-Identifier: MIT-0
 package main
 
 import (
+	"aws/ethereum-signer/internal/attestation"
+	aws2 "aws/ethereum-signer/internal/aws"
 	"aws/ethereum-signer/internal/enclave"
 	"aws/ethereum-signer/internal/ethereum"
 	signerHMAC "aws/ethereum-signer/internal/hmac"
@@ -107,9 +109,14 @@ func main() {
 				return
 			}
 
+			kmsProvider, err := keymanagement.NewAWSKMSProvider(enclavePayload.Credential, region, aws2.VSOCK, 3, listenerPort)
+			if err != nil {
+				enclave.HandleError(conn, fmt.Sprintf("failed to create kms provider: %v", err), 500)
+				return
+			}
 			// todo memguard
 			attestationStart := time.Now()
-			plaintextSDKB64, err := keymanagement.DecryptCiphertextWithAttestation(enclavePayload.Credential, enclavePayload.EncryptedKey, listenerPort, region, &keymanagement.AdvancedDecOpts{EphemeralRSAKey: false})
+			plaintextSDKB64, err := keymanagement.DecryptCiphertextWithAttestation(enclavePayload.EncryptedKey, &keymanagement.AdvancedDecOpts{EphemeralRSAKey: false}, &attestation.NitroAttestationProvider{}, kmsProvider)
 			if err != nil {
 				enclave.HandleError(conn, fmt.Sprintf("exception happened decrypting passed cyphertext (attestation): %s", err), 500)
 				return

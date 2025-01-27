@@ -1,10 +1,13 @@
 package keymanagement
 
 import (
+	"aws/ethereum-signer/internal/types"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -88,6 +91,71 @@ func TestProvideRSAKey(t *testing.T) {
 			t.Error("Expected error with invalid environment variable data")
 		}
 	})
+}
+
+func TestParsePlaintext(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		want        types.PlainKey
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:  "valid plaintext",
+			input: base64.StdEncoding.EncodeToString([]byte(`{"secret": "secret", "eth_key": "eth_key"}`)),
+			want: types.PlainKey{Secret: "secret",
+				EthKey: "eth_key"},
+			wantErr: false,
+		},
+		{
+			name:        "invalid base64",
+			input:       "invalid-base64!@#$",
+			want:        types.PlainKey{},
+			wantErr:     true,
+			errContains: "failed to decode kmsResultB64",
+		},
+		{
+			name:        "invalid json",
+			input:       base64.StdEncoding.EncodeToString([]byte(`{invalid-json}`)),
+			want:        types.PlainKey{},
+			wantErr:     true,
+			errContains: "failed to unmarshal kmsResult",
+		},
+		{
+			name:        "empty input",
+			input:       "",
+			want:        types.PlainKey{},
+			wantErr:     true,
+			errContains: "failed to decode kmsResultB64",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParsePlaintext(tt.input)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ParsePlaintext() error = nil, wantErr %v", tt.wantErr)
+					return
+				}
+				if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("ParsePlaintext() error = %v, want error containing %v", err, tt.errContains)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("ParsePlaintext() unexpected error = %v", err)
+				return
+			}
+
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ParsePlaintext() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 // Helper function to compare two RSA private keys

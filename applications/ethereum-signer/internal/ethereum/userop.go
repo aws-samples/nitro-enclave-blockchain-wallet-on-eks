@@ -6,7 +6,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// func signUserOps(userOpsHash *common.Hash, ethKey string) (string, error) {
 func SignUserOps(userOpsHash []byte, ethKey string) (string, error) {
 	//log.Debugf("userOpsHashRaw: %v / ethKey %v", userOpsHash, ethKey)
 	privateKey, err := crypto.HexToECDSA(ethKey)
@@ -20,7 +19,7 @@ func SignUserOps(userOpsHash []byte, ethKey string) (string, error) {
 		return "", err
 	}
 	// ethers implementation to determine v (legacy recovery parameter) for signed messages
-	logrus.Debugf("signature (orgiginal) v: %v", signature[64])
+	logrus.Debugf("signature (original) v: %v", signature[64])
 	signature[64] += byte(27)
 
 	logrus.Debugf("signature (legacy) v: %v", signature[64])

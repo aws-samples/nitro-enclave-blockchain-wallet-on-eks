@@ -17,4 +17,4 @@ sleep 360
 # run 20 instances with 100 requests (userOp, ethereumTx) each, total of 4000 signing request, 20 key generation requests
 ./tests/e2e/signing_load_test.sh load 20 100
 
-#./tests/e2e/cleanup.sh
+./tests/e2e/cleanup.sh

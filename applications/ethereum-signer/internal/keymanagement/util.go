@@ -1,10 +1,12 @@
 package keymanagement
 
 import (
+	"aws/ethereum-signer/internal/types"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
@@ -85,4 +87,22 @@ func generateEphemeralRSAKey() (*rsa.PrivateKey, error) {
 	}
 
 	return privateKey, nil
+}
+
+func ParsePlaintext(kmsResultB64 string) (types.PlainKey, error) {
+	log.Debugf("raw kmsResultB64: %v", kmsResultB64)
+
+	kmsResult, err := base64.StdEncoding.DecodeString(kmsResultB64)
+	if err != nil {
+		return types.PlainKey{}, fmt.Errorf("failed to decode kmsResultB64: %v", err)
+	}
+
+	var userKey types.PlainKey
+
+	err = json.Unmarshal(kmsResult, &userKey)
+	if err != nil {
+		return types.PlainKey{}, fmt.Errorf("failed to unmarshal kmsResult: %v", err)
+	}
+
+	return userKey, nil
 }

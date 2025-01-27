@@ -21,3 +21,4 @@ cdk destroy "${CDK_PREFIX}EksNitroCluster" --force --output "${CDK_PREFIX}cdk.ou
 #rm -rf applications/ethereum-signer/third_party/*
 
 rm -rf cdk.context.json "${CDK_PREFIX}cdk.out" "${CDK_PREFIX}EksClusterOutput.json" "${CDK_PREFIX}vsock_base_port_assignments.tmp"
+docker rmi $(docker images | grep -e cdkasset -e ${CDK_DEPLOY_REGION}) 2>/dev/null || true
