@@ -2,9 +2,8 @@
 #  SPDX-License-Identifier: MIT-0
 import json
 import os
-import yaml
 import sys
-from git import Repo
+
 from aws_cdk import (
     Stack,
     Fn,
@@ -16,9 +15,15 @@ from aws_cdk import (
     aws_ecr_assets as ecr_assets,
     CfnOutput,
 )
-from constructs import Construct
-from cdk_nag import NagSuppressions, NagPackSuppression
 from aws_cdk import lambda_layer_kubectl_v27
+from cdk_nag import NagSuppressions, NagPackSuppression
+from constructs import Construct
+
+from eks_nitro_wallet.eks_utils import (
+    apply_remote_manifest,
+    create_private_link,
+    create_k8s_namespace,
+)
 
 
 class EksNitroWalletStack(Stack):
@@ -70,7 +75,8 @@ class EksNitroWalletStack(Stack):
             vpc=vpc,
         )
 
-        self._create_private_link(
+        create_private_link(
+            self,
             vpc=vpc,
             services=[
                 "DYNAMODB",
@@ -168,7 +174,7 @@ class EksNitroWalletStack(Stack):
                 eks.ClusterLoggingTypes.CONTROLLER_MANAGER,
                 eks.ClusterLoggingTypes.SCHEDULER,
             ],
-            endpoint_access=eks.EndpointAccess.PUBLIC_AND_PRIVATE
+            endpoint_access=eks.EndpointAccess.PUBLIC_AND_PRIVATE,
         )
 
         kubectl_role = iam.Role(
@@ -227,8 +233,11 @@ class EksNitroWalletStack(Stack):
         eks_cloudwatch_service_namespace_name = "aws-for-fluent-bit"
         eks_cloudwatch_service_account_name = "eks-cloud-watch"
 
-        eks_cloudwatch_service_namespace = self._create_k8s_namespace(
-            name=eks_cloudwatch_service_namespace_name, cluster=cluster, override=True
+        eks_cloudwatch_service_namespace = create_k8s_namespace(
+            self,
+            name=eks_cloudwatch_service_namespace_name,
+            cluster=cluster,
+            override=True,
         )
 
         eks_cloudwatch_service_account = cluster.add_service_account(
@@ -290,8 +299,8 @@ class EksNitroWalletStack(Stack):
         )
 
         external_dns_name = "external-dns"
-        external_dns_name_namespace = self._create_k8s_namespace(
-            name=external_dns_name, cluster=cluster, override=True
+        external_dns_name_namespace = create_k8s_namespace(
+            self, name=external_dns_name, cluster=cluster, override=True
         )
         external_dns_service_account = cluster.add_service_account(
             "eks-external-dns-service-account",
@@ -326,10 +335,12 @@ class EksNitroWalletStack(Stack):
         external_dns_helm_chart.node.add_dependency(external_dns_service_account)
 
         # custom function to apply customized manifests to the EKS clusterd
-        self._apply_k8s_nitro_operator(
-            folder="applications/ethereum-signer/third_party",
+        apply_remote_manifest(
+            self,
             cluster=cluster,
-            platform=target_architecture_config[target_architecture]["platform"],
+            manifest_url="https://raw.githubusercontent.com/aws/aws-nitro-enclaves-k8s-device"
+            "-plugin/refs/tags/v0.2.0/aws-nitro-enclaves-k8s-ds.yaml",
+            manifest_name="aws-nitro-enclaves-k8s-ds",
         )
 
         ssm.StringParameter(
@@ -409,101 +420,66 @@ class EksNitroWalletStack(Stack):
             apply_to_children=True,
         )
 
-    def _create_private_link(self, vpc, services):
-        for service in services:
-            if service in ["DYNAMODB", "S3"]:
-                service_gateway = getattr(ec2.GatewayVpcEndpointAwsService, service)
-                vpc.add_gateway_endpoint(
-                    "{}GatewayEndpoint".format(service), service=service_gateway
-                )
-            else:
-                service_endpoint = getattr(ec2.InterfaceVpcEndpointAwsService, service)
-                ec2.InterfaceVpcEndpoint(
-                    self,
-                    "{}InterfaceEndpoint".format(service),
-                    vpc=vpc,
-                    subnets=ec2.SubnetSelection(
-                        subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
-                    ),
-                    service=service_endpoint,
-                    private_dns_enabled=True,
-                )
-
-    def _apply_k8s_nitro_operator(
-            self, folder: str, cluster: eks.ICluster, platform: ecr_assets.Platform
-    ) -> None:
-        repo_folder = f"{folder}/aws-nitro-enclaves-k8s-device-plugin"
-        # clone repo if folder does not yet exist
-        if not os.path.isdir(repo_folder):
-            try:
-                # has to be pinned to specific tag when available - v0.1.0 outdated
-                Repo.clone_from(
-                    "https://github.com/aws/aws-nitro-enclaves-k8s-device-plugin.git",
-                    repo_folder,
-                    branch="main",
-                )
-            except Exception as e:
-                print(
-                    f"AWS Nitro Enclave operator for EKS repo could not be cloned - stopping operation: {e}"
-                )
-                exit(1)
-        else:
-            print("skipping git clone due to existing repository")
-
-        # build docker image asset for enclave operator till 4 enclave support is available via public ecr
-        # https://gallery.ecr.aws/aws-nitro-enclaves/aws-nitro-enclaves-k8s-device-plugin
-        enclave_operator_image = ecr_assets.DockerImageAsset(
-            self,
-            "NitroEnclaveOperator",
-            directory=repo_folder,
-            file="container/Dockerfile",
-            platform=platform,
-            asset_name="nitro-enclave-device-plugin-ds",
-        )
-
-        with open(
-                f"{repo_folder}/aws-nitro-enclaves-k8s-ds.yaml", "r", encoding="UTF-8"
-        ) as file:
-            manifests_raw = file.read()
-
-        # returns generator
-        manifests_generator = yaml.safe_load_all(manifests_raw)
-
-        # build list of manifests and manipulate custom daemon set uri
-        manifests = []
-        for manifest_raw in manifests_generator:
-            manifest = manifest_raw
-
-            if manifest["kind"] in "DaemonSet":
-                manifest["spec"]["template"]["spec"]["containers"][0][
-                    "image"
-                ] = enclave_operator_image.image_uri
-            manifests.append(manifest)
-
-        eks.KubernetesManifest(
-            self,
-            "nitro_enclave_ds",
-            cluster=cluster,
-            manifest=manifests,
-            overwrite=True,
-        )
-
-    def _create_k8s_namespace(
-            self, name: str, cluster: eks.ICluster, override: bool = True
-    ) -> eks.KubernetesManifest:
-
-        return eks.KubernetesManifest(
-            self,
-            f"{name}NamespaceManifest",
-            cluster=cluster,
-            overwrite=override,
-            manifest=[
-                {
-                    "apiVersion": "v1",
-                    "kind": "Namespace",
-                    "metadata": {
-                        "name": name,
-                    },
-                }
-            ],
-        )
+    # def create_private_link(self, vpc, services):
+    #     for service in services:
+    #         if service in ["DYNAMODB", "S3"]:
+    #             service_gateway = getattr(ec2.GatewayVpcEndpointAwsService, service)
+    #             vpc.add_gateway_endpoint(
+    #                 "{}GatewayEndpoint".format(service), service=service_gateway
+    #             )
+    #         else:
+    #             service_endpoint = getattr(ec2.InterfaceVpcEndpointAwsService, service)
+    #             ec2.InterfaceVpcEndpoint(
+    #                 self,
+    #                 "{}InterfaceEndpoint".format(service),
+    #                 vpc=vpc,
+    #                 subnets=ec2.SubnetSelection(
+    #                     subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
+    #                 ),
+    #                 service=service_endpoint,
+    #                 private_dns_enabled=True,
+    #             )
+    #
+    # def apply_remote_manifest(self, cluster: eks.ICluster, manifest_url: str, manifest_name: str) -> None:
+    #     # Fetch the manifest from remote URL
+    #     try:
+    #         response = requests.get(manifest_url)
+    #         response.raise_for_status()
+    #         manifest_content = response.text
+    #
+    #         # Parse all YAML documents in the manifest
+    #         manifests = list(yaml.safe_load_all(manifest_content))
+    #
+    #         # Apply the manifest to the cluster
+    #         eks.KubernetesManifest(
+    #             self,
+    #             f"{manifest_name}Manifest",
+    #             cluster=cluster,
+    #             manifest=manifests
+    #         )
+    #     except requests.exceptions.RequestException as e:
+    #         print(f"Failed to fetch manifest from {manifest_url}: {e}")
+    #         raise
+    #     except yaml.YAMLError as e:
+    #         print(f"Failed to parse manifest YAML: {e}")
+    #         raise
+    #
+    # def create_k8s_namespace(
+    #         self, name: str, cluster: eks.ICluster, override: bool = True
+    # ) -> eks.KubernetesManifest:
+    #
+    #     return eks.KubernetesManifest(
+    #         self,
+    #         f"{name}NamespaceManifest",
+    #         cluster=cluster,
+    #         overwrite=override,
+    #         manifest=[
+    #             {
+    #                 "apiVersion": "v1",
+    #                 "kind": "Namespace",
+    #                 "metadata": {
+    #                     "name": name,
+    #                 },
+    #             }
+    #         ],
+    #     )
