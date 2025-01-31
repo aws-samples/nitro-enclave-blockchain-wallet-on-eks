@@ -61,10 +61,8 @@ if [[ ${application} == "ethereum-signer" ]]; then
 
 elif [[ ${application} == "ethereum-key-generator" ]]; then
 
-  #  check if proxy has been build already and if not build it otherwise reuse binary
-  if [[ ! -f ${PROXY_PATH}/proxy ]]; then
-    ./scripts/build_vsock_proxy.sh
-  fi
+  #  rebuild proxy with specified target architecture
+  ./scripts/build_vsock_proxy.sh
 
   DOCKER_FILE_PATH="./images/key-generator_enclave/Dockerfile"
   ENCLAVE_NAME="ethereum-key-generator_enclave"

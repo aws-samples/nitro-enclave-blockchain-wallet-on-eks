@@ -17,10 +17,11 @@ GO_EKS_BASE_IMAGE="go_eks_base"
 GO_LAMBDA_BASE_IMAGE="go_lambda_base"
 
 cd "${BASE_DOCKER_PATH}"
-docker build --target pod_image --platform "${target_architecture}" -t "${NITRO_EKS_POD_BASE_IMAGE}" -f "${NITRO_EKS_POD_BASE_IMAGE_FILE}" .
-docker build --target build_image --platform "${target_architecture}" -t "${NITRO_EKS_BUILD_BASE_IMAGE}" -f "${NITRO_EKS_POD_BASE_IMAGE_FILE}" .
+# attaching "eks_nitro_wallet_base=true" label to each of the base images to avoid pruning these later on
+docker build --target pod_image --platform "${target_architecture}" -t "${NITRO_EKS_POD_BASE_IMAGE}" -f "${NITRO_EKS_POD_BASE_IMAGE_FILE}" --label "eks_nitro_wallet_base=true" .
+docker build --target build_image --platform "${target_architecture}" -t "${NITRO_EKS_BUILD_BASE_IMAGE}" -f "${NITRO_EKS_POD_BASE_IMAGE_FILE}" --label "eks_nitro_wallet_base=true" .
 cd -
 
 cd "${GO_BASE_PATH}"
-docker build --target "${GO_EKS_BASE_IMAGE}" --platform "${target_architecture}" --build-arg SKIP_TEST_ARG="${CDK_SKIP_TESTS}" -t "${GO_EKS_BASE_IMAGE}" -f "${GO_BASE_IMAGE_FILE}" .
-docker build --target "${GO_LAMBDA_BASE_IMAGE}" --platform linux/amd64 --build-arg SKIP_TEST_ARG="${CDK_SKIP_TESTS}" -t "${GO_LAMBDA_BASE_IMAGE}" -f "${GO_BASE_IMAGE_FILE}" .
+docker build --target "${GO_EKS_BASE_IMAGE}" --platform "${target_architecture}" --build-arg SKIP_TEST_ARG="${CDK_SKIP_TESTS}" -t "${GO_EKS_BASE_IMAGE}" -f "${GO_BASE_IMAGE_FILE}" --label "eks_nitro_wallet_base=true" .
+docker build --target "${GO_LAMBDA_BASE_IMAGE}" --platform linux/amd64 --build-arg SKIP_TEST_ARG="${CDK_SKIP_TESTS}" -t "${GO_LAMBDA_BASE_IMAGE}" -f "${GO_BASE_IMAGE_FILE}" --label "eks_nitro_wallet_base=true" .
