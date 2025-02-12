@@ -138,6 +138,9 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 
 	// advanced decrypt options
 	encALgo, err := supportedEncryptionAlgorithms(decryptCfg.encryptionAlgorithm)
+	if err != nil {
+		return fmt.Errorf("invalid encryption algorithm: %v", err)
+	}
 	advDecOpts := keymanagement.AdvancedDecOpts{
 		EncryptionAlgorithm: encALgo,
 		EncryptionContext:   decryptCfg.encryptionContext,
