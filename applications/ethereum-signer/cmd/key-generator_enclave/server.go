@@ -47,7 +47,8 @@ func NewServer(config *enclave.Config) *Server {
 		connPool: make(chan struct{}, maxWorkers),
 		bufferPool: &sync.Pool{
 			New: func() interface{} {
-				return make([]byte, bufferSize)
+				b := make([]byte, bufferSize)
+				return &b
 			},
 		},
 	}
@@ -115,7 +116,11 @@ func (s *Server) Run() {
 
 func (s *Server) handleConnection(conn net.Conn) {
 	defer func() {
-		conn.Close()
+		err := conn.Close()
+		if err != nil {
+			log.Errorf("failed closing connection: %v", err)
+			return
+		}
 		<-s.connPool // release connection slot
 	}()
 
@@ -138,9 +143,8 @@ func (s *Server) handleConnection(conn net.Conn) {
 }
 
 func (s *Server) readAndValidatePayload(conn net.Conn) (*signerTypes.EnclaveKeyGenerationPayload, error) {
-	// todo https://staticcheck.dev/docs/checks/#SA6002
-	buf := s.bufferPool.Get().([]byte)
-	defer s.bufferPool.Put(buf)
+	buf := *(s.bufferPool.Get().(*[]byte))
+	defer s.bufferPool.Put(&buf)
 
 	n, err := conn.Read(buf)
 	if err != nil {

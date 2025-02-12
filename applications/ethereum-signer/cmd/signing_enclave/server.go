@@ -51,7 +51,8 @@ func NewSigningServer(config *enclave.Config) *SigningServer {
 		connPool: make(chan struct{}, maxWorkers),
 		bufferPool: &sync.Pool{
 			New: func() interface{} {
-				return make([]byte, bufferSize)
+				b := make([]byte, bufferSize)
+				return &b
 			},
 		},
 	}
@@ -120,7 +121,11 @@ func (s *SigningServer) Run() {
 
 func (s *SigningServer) handleConnection(conn net.Conn) {
 	defer func() {
-		conn.Close()
+		err := conn.Close()
+		if err != nil {
+			log.Errorf("failed to close connection: %v", err)
+			return
+		}
 		<-s.connPool // release connection slot
 	}()
 
@@ -148,8 +153,8 @@ func (s *SigningServer) handleConnection(conn net.Conn) {
 }
 
 func (s *SigningServer) readAndValidatePayload(conn net.Conn) (*signerTypes.EnclaveSigningPayload, error) {
-	buf := s.bufferPool.Get().([]byte)
-	defer s.bufferPool.Put(buf)
+	buf := *(s.bufferPool.Get().(*[]byte))
+	defer s.bufferPool.Put(&buf)
 
 	if err := conn.SetReadDeadline(time.Now().Add(requestTimeout)); err != nil {
 		return nil, fmt.Errorf("failed to set read deadline: %w", err)
