@@ -24,7 +24,7 @@ def create_private_link(self, vpc, services):
             )
 
 
-def apply_remote_manifest(
+def apply_k8s_remote_manifest(
     self, cluster: eks.ICluster, manifest_url: str, manifest_name: str
 ) -> None:
     # Fetch the manifest from remote URL
