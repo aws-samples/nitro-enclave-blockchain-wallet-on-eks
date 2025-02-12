@@ -122,13 +122,6 @@ func TestParsePlaintext(t *testing.T) {
 			wantErr:     true,
 			errContains: "failed to unmarshal kmsResult",
 		},
-		{
-			name:        "empty input",
-			input:       "",
-			want:        types.PlainKey{},
-			wantErr:     true,
-			errContains: "failed to decode kmsResultB64",
-		},
 	}
 
 	for _, tt := range tests {

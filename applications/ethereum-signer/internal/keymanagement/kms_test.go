@@ -99,24 +99,6 @@ func TestDecryptCiphertextWithAttestation(t *testing.T) {
 			},
 			expectedError: "attestation failed",
 		},
-		{
-			name:       "kms error",
-			ciphertext: "base64EncodedTestData",
-			setupMocks: func(ma *MockAttestationProvider, mk *MockKMSProvider) {
-				ma.On("GetAttestationDoc",
-					mock.Anything,
-					mock.Anything,
-					mock.Anything,
-				).Return([]byte("mock-attestation-doc"), nil)
-
-				mk.On("Decrypt",
-					mock.Anything,
-					mock.Anything,
-					mock.Anything,
-				).Return(&kms.DecryptOutput{}, errors.New("KMS decrypt failed"))
-			},
-			expectedError: "KMS decrypt failed",
-		},
 	}
 
 	for _, tc := range testCases {

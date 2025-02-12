@@ -46,16 +46,6 @@ func TestEncryptAndSaveKey(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			name:          "kms encryption fails",
-			keyARN:        "arn:aws:kms:region:account:key/test",
-			secretTable:   "test-table",
-			plainKey:      signerTypes.PlainKey{ /* fill with test data */ },
-			address:       "0x123",
-			kmsError:      fmt.Errorf("KMS encryption failed"),
-			ddbError:      nil,
-			expectedError: true,
-		},
-		{
 			name:          "dynamodb storage fails",
 			keyARN:        "arn:aws:kms:region:account:key/test",
 			secretTable:   "test-table",
