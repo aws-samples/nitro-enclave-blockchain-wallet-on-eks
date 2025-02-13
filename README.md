@@ -1,8 +1,20 @@
 # Secure Blockchain Workloads using AWS Nitro Enclaves on EKS
 
-## Architecture
 
-### EKS Deployment Overview
+## kmstool-cli
+
+The enclosed go project allows compiling of an [`kmstool-enclave-cli`](https://github.com/aws/aws-nitro-enclaves-sdk-c/tree/main/bin/kmstool-enclave-cli) 
+compatible cli tool including `ephemeral key` management related performance optimization. 
+
+```shell
+cd applications/ethereum-signer/cmd/kmstool-cli
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.Version=v0.0.1 -X main.BuildTime=$(date -u +'%Y-%m-%d_%H:%M:%S')" -o kmstool-cli
+```
+
+Cli and performance related information enclosed in the [Readme](applications/ethereum-signer/cmd/kmstool-cli/README.md).
+
+----
+## EKS Deployment - Architecture
 
 The following diagram depicts the high level architecture of the solution that is enclosed in this AWS CDK
 repository which will be deployed to the specified AWS account.

@@ -7,7 +7,7 @@ Flags:
       --aws-secret-access-key string        AWS secret access key
       --aws-session-token string            Session token associated with the access key ID
       --ciphertext string                   Base64-encoded ciphertext that need to decrypt
-      --encryption-algorithm string         Encryption algorithm for ciphertext, defaults to SYMMETRIC_DEFAULT (only option for symmetric keys
+      --encryption-algorithm string         Encryption algorithm for ciphertext, defaults to SYMMETRIC_DEFAULT (only option for symmetric keys (default "SYMMETRIC_DEFAULT")
       --encryption-context stringToString   Encryption context key-value pairs (default [])
       --ephemeral-key                       If true, the RSA key used in the Recipient field is regenerated with every run. If switch is set to false, key will be sourced from RSA_PRIVATE_KEY env variable. If variable is empty, key will just be generated once and stored in RSA_PRIVATE_KEY. RSA key is used by KMS in the CiphertextForRecipient structure which is a RecipientInfo structure, as described in RFC5652 Section 6 (default true)
   -h, --help                                help for decrypt

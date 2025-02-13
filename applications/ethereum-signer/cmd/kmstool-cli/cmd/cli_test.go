@@ -22,6 +22,7 @@ func TestDecryptCommand(t *testing.T) {
 	}{
 		{
 			// golden path
+			// todo extend mocking to cli - just ensuring correct parameter combination right now
 			name: "basic_decrypt",
 			args: []string{
 				"decrypt",
@@ -47,6 +48,21 @@ func TestDecryptCommand(t *testing.T) {
 			},
 			wantErr: true,
 			golden:  "testdata/missing_region.golden",
+		},
+		{
+			name: "invalid_encryption_algorithm",
+			args: []string{
+				"decrypt",
+				"--region", "us-west-2",
+				"--proxy-port", "8000",
+				"--aws-access-key-id", "AKIAIOSFODNN7EXAMPLE",
+				"--aws-secret-access-key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+				"--aws-session-token", "SESSION_TOKEN",
+				"--ciphertext", "SGVsbG8gV29ybGQ=", // base64 encoded
+				"--ephemeral-key", "false",
+			},
+			wantErr: true,
+			golden:  "testdata/basic_decrypt_ephemeral-key.golden",
 		},
 	}
 

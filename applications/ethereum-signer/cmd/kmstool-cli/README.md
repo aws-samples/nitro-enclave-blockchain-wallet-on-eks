@@ -44,8 +44,19 @@ leading or trailing characters, thus the based64 encoded string can directly be 
 ./kmstool-cli decrypt --region us-west-2 --ciphertext BASE64_TEXT -v
 ```
 
-If `-v/--verbose` mode has been selected, all input paramters will be printed to `stdout` on the terminal in additon
+If `-v/--verbose` mode has been selected, all input parameters will be printed to `stdout` on the terminal in additon
 to the base64 encoded plaintext.
+
+**deactivate ephemeral key for decrypt command**
+```shell
+./kmstool-cli decrypt --region us-west-2 --ciphertext BASE64_TEXT -v --ephemeral-key false
+```
+
+Key will be generated the first time the cli is run and stored in env var. Subsequent calls will
+load the RSA private key from env instead of regenerating it for every run. 
+
+Using the [aws-nitro-enclave-blockchain-wallet](https://github.com/aws-samples/aws-nitro-enclave-blockchain-wallet?tab=readme-ov-file) as
+a standard testing harness, setting the `--ephemeral-key` flag to `false`, on average saves avg. `~50/60ms` on the RSA key generation step.
 
 **get help**
 

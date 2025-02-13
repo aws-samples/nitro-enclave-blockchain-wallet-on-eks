@@ -97,7 +97,7 @@ Build Time: ` + BuildTime)
 	decryptCmd.Flags().StringVar(&decryptCfg.awsSessionToken, "aws-session-token", "", "Session token associated with the access key ID")
 	decryptCmd.Flags().StringVar(&decryptCfg.ciphertext, "ciphertext", "", "Base64-encoded ciphertext that need to decrypt")
 	decryptCmd.Flags().StringVar(&decryptCfg.keyID, "key-id", "", "Decrypt key id (for symmetric keys)")
-	decryptCmd.Flags().StringVar(&decryptCfg.encryptionAlgorithm, "encryption-algorithm", "", "Encryption algorithm for ciphertext, defaults to SYMMETRIC_DEFAULT (only option for symmetric keys")
+	decryptCmd.Flags().StringVar(&decryptCfg.encryptionAlgorithm, "encryption-algorithm", "SYMMETRIC_DEFAULT", "Encryption algorithm for ciphertext, defaults to SYMMETRIC_DEFAULT (only option for symmetric keys")
 	decryptCmd.Flags().StringToStringVar(&decryptCfg.encryptionContext, "encryption-context", nil, "Encryption context key-value pairs")
 	decryptCmd.Flags().BoolVar(&decryptCfg.ephemeralKeySwitch, "ephemeral-key", true,
 		"If true, the RSA key used in the Recipient field is regenerated with every run. "+
@@ -109,10 +109,6 @@ Build Time: ` + BuildTime)
 	rootCmd.AddCommand(decryptCmd)
 
 	return rootCmd
-	//if err := rootCmd.Execute(); err != nil {
-	//	fmt.Println(err)
-	//	os.Exit(1)
-	//}
 }
 
 func runDecrypt(cmd *cobra.Command, args []string) error {
@@ -127,6 +123,7 @@ func runDecrypt(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Key ID: %s\n", decryptCfg.keyID)
 		fmt.Printf("Encryption Algorithm: %s\n", decryptCfg.encryptionAlgorithm)
 		fmt.Printf("Encryption Context: %v\n", decryptCfg.encryptionContext)
+		fmt.Printf("Ephemeral Key: %v\n", decryptCfg.ephemeralKeySwitch)
 	}
 
 	// credentials

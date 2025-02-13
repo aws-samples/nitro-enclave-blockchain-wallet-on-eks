@@ -27,6 +27,22 @@ func TestProvideRSAKey(t *testing.T) {
 		}
 	})
 
+	t.Run("ephemeral key generation", func(t *testing.T) {
+		key, err := ProvideRSAKey(true)
+		if err != nil {
+			t.Errorf("Failed to generate ephemeral key: %v", err)
+		}
+
+		// Verify it's a different RSA key calling it the second time
+		key2, err := ProvideRSAKey(true)
+		if err != nil {
+			t.Errorf("Failed to generate ephemeral key: %v", err)
+		}
+		if compareRSAPrivateKeys(key, key2) {
+			t.Error("Generated keys are the same, expected different")
+		}
+	})
+
 	t.Run("non-ephemeral key with empty env", func(t *testing.T) {
 		os.Unsetenv("RSA_PRIVATE_KEY")
 
@@ -48,7 +64,7 @@ func TestProvideRSAKey(t *testing.T) {
 
 		// Verify the retrieved key matches the original
 		if !compareRSAPrivateKeys(key, retrievedKey) {
-			t.Error("Retrieved key does not match original key")
+			t.Errorf("Retrieved key does not match original key: key1/%v key2/%v", key, retrievedKey)
 		}
 
 	})
