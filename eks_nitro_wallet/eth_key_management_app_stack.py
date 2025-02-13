@@ -95,6 +95,7 @@ class NitroWalletAppStack(Stack):
                 subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
             ),
             security_groups=[signer_client_sg],
+            architecture=_lambda.Architecture.X86_64,
         )
         kms_key.grant_encrypt(invoke_lambda)
         secrets_table.grant_write_data(invoke_lambda)
@@ -114,8 +115,11 @@ class NitroWalletAppStack(Stack):
             ),
             deploy_options=apigateway.StageOptions(
                 stage_name=f"{prefix}",
-                logging_level=apigateway.MethodLoggingLevel.INFO if log_level in ["INFO",
-                                                                                  "DEBUG"] else apigateway.MethodLoggingLevel.ERROR,
+                logging_level=(
+                    apigateway.MethodLoggingLevel.INFO
+                    if log_level in ["INFO", "DEBUG"]
+                    else apigateway.MethodLoggingLevel.ERROR
+                ),
                 data_trace_enabled=True,
                 tracing_enabled=True,
                 access_log_destination=apigateway.LogGroupLogDestination(
@@ -183,6 +187,7 @@ class NitroWalletAppStack(Stack):
             string_value=rest_api_role.role_arn,
         )
 
+        #
         signer_enclave_image = s3_assets.Asset(
             self,
             "signerEnclaveImage",

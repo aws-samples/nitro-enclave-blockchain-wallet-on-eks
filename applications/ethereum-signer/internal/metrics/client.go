@@ -42,7 +42,7 @@ func (mc *Client) monitorSystemCPU() (int, int, error) {
 	total := float64(after.Total - before.Total)
 	cpuUser := int(math.Round(float64(after.User-before.User) / total * 100))
 	cpuSystem := int(math.Round(float64(after.System-before.System) / total * 100))
-	log.Infof("cpuUser: %v, cpuSystem: %v", cpuUser, cpuSystem)
+	//log.Infof("cpuUser: %v, cpuSystem: %v", cpuUser, cpuSystem)
 
 	return cpuUser, cpuSystem, nil
 }
@@ -54,7 +54,7 @@ func (mc *Client) monitorSystemMemory() (int, int, error) {
 	}
 	memoryUsed := int(math.Round(float64(memory.Used) / float64(memory.Total) * 100))
 	memoryCached := int(math.Round(float64(memory.Cached) / float64(memory.Total) * 100))
-	log.Infof("memoryUsed: %v, memoryCached: %v", memoryUsed, memoryCached)
+	//log.Infof("memoryUsed: %v, memoryCached: %v", memoryUsed, memoryCached)
 
 	return memoryUsed, memoryCached, nil
 }
@@ -64,7 +64,7 @@ func (mc *Client) pushToMetricsServer(enclaveMetrics types.EnclaveSystemMetrics)
 	if err != nil {
 		return err
 	}
-	log.Debugf("serialized metrics payload: %q", metricsSerialized)
+	//log.Debugf("serialized metrics payload: %q", metricsSerialized)
 
 	conn, err := vsock.Dial(mc.cid, mc.port, nil)
 	if err != nil {

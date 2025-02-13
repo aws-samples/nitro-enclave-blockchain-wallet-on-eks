@@ -39,3 +39,68 @@ func TestCalculateHMAC(t *testing.T) {
 		})
 	}
 }
+
+func TestTimestampInRange(t *testing.T) {
+	// Test cases structure
+	tests := []struct {
+		name              string
+		providedTimestamp int
+		ownTimestamp      int
+		maxDelta          int
+		expected          bool
+	}{
+		{
+			name:              "Equal timestamps",
+			providedTimestamp: 1000,
+			ownTimestamp:      1000,
+			maxDelta:          5,
+			expected:          true,
+		},
+		{
+			name:              "Timestamp within delta range",
+			providedTimestamp: 1000,
+			ownTimestamp:      1003,
+			maxDelta:          5,
+			expected:          true,
+		},
+		{
+			name:              "Timestamp at max delta",
+			providedTimestamp: 1000,
+			ownTimestamp:      1005,
+			maxDelta:          5,
+			expected:          true,
+		},
+		{
+			name:              "Timestamp outside delta range",
+			providedTimestamp: 1000,
+			ownTimestamp:      1006,
+			maxDelta:          5,
+			expected:          false,
+		},
+		{
+			name:              "Negative delta",
+			providedTimestamp: 1000,
+			ownTimestamp:      995,
+			maxDelta:          -5,
+			expected:          true,
+		},
+		{
+			name:              "Zero delta",
+			providedTimestamp: 1000,
+			ownTimestamp:      1000,
+			maxDelta:          0,
+			expected:          true,
+		},
+	}
+
+	// Run all test cases
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := TimestampInRange(tt.providedTimestamp, tt.ownTimestamp, tt.maxDelta)
+			if result != tt.expected {
+				t.Errorf("TimestampInRange(%d, %d, %d) = %v; want %v",
+					tt.providedTimestamp, tt.ownTimestamp, tt.maxDelta, result, tt.expected)
+			}
+		})
+	}
+}

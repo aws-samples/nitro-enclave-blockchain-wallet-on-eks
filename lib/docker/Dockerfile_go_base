@@ -3,19 +3,25 @@
 
 ## build
 FROM golang:1.22.1-bullseye AS go_base
-
+ARG TARGETARCH
 WORKDIR /app
 
 ENV GOPROXY=direct
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod,id=${TARGETARCH} \
+    --mount=type=cache,target=/root/.cache/go-build,id=${TARGETARCH} \
+    go mod download
 
 ARG SKIP_TEST_ARG
 
 # can be made optional if required
 #RUN if [ "$SKIP_TEST_ARG" != "true" ]; then go install honnef.co/go/tools/cmd/staticcheck@latest && \
 #    go install github.com/securego/gosec/v2/cmd/gosec@latest; fi
-RUN go install honnef.co/go/tools/cmd/staticcheck@latest && \
+RUN --mount=type=cache,target=/go/pkg/mod,id=${TARGETARCH} \
+    --mount=type=cache,target=/root/.cache/go-build,id=${TARGETARCH} \
+    go install honnef.co/go/tools/cmd/staticcheck@latest
+RUN --mount=type=cache,target=/go/pkg/mod,id=${TARGETARCH} \
+    --mount=type=cache,target=/root/.cache/go-build,id=${TARGETARCH} \
     go install github.com/securego/gosec/v2/cmd/gosec@latest
 
 FROM go_base AS go_eks_base

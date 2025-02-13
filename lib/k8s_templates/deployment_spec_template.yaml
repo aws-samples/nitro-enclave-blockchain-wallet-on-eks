@@ -6,8 +6,8 @@ kind: Deployment
 metadata:
   name: <template>
 spec:
-  replicas: 2
-#  replicas: 1
+#  replicas: 2
+  replicas: 1
   strategy:
       type: Recreate
 #  type: RollingUpdate

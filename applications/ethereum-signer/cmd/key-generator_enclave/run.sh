@@ -12,8 +12,14 @@ ip link set dev lo:0 up
 echo "127.0.0.1   kms.${REGION}.amazonaws.com" >>/etc/hosts
 echo "127.0.0.2   dynamodb.${REGION}.amazonaws.com" >>/etc/hosts
 
+# tcp and kernel tuning would go here
+#sysctl -w net.core.rmem_max=16777216 # 4MB
+#sysctl -w net.core.wmem_max=16777216 # 4MB
+#sysctl -w net.ipv4.tcp_max_syn_backlog=65536
+#sysctl -w net.core.somaxconn=65535
+#sysctl -w net.core.netdev_max_backlog=65536
+
 # start outbound proxy for kms
-# todo fail if binary cannot be found
 IN_ADDRS=127.0.0.1:443 OUT_ADDRS=3:"$(($PORT))" /app/proxy &
 
 # start outbound proxy for dynamodb

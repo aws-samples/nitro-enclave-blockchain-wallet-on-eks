@@ -45,10 +45,6 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 
 	// environment variable required for generate key, sign tx and sign user op
 	nitroInstancePrivateDNS := os.Getenv("NITRO_INSTANCE_PRIVATE_DNS")
-
-	// environment variables required for set key operation
-	//secretTable := os.Getenv("SECRETS_TABLE")
-	//keyARN := os.Getenv("KEY_ARN")
 	validate = validator.New()
 
 	switch operation {
@@ -69,34 +65,6 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 			return events.APIGatewayProxyResponse{Body: validationErrors.Error(), StatusCode: 400}, nil
 		}
 
-		//value := reflect.ValueOf(keyGenerationRequest)
-		//ethKey := value.FieldByName("EthKey")
-
-		// check if field has been set - if set the user wants to set an externally generated key otherwise enclave based
-		// key generation is triggered
-		//if ethKey.IsValid() {
-		//
-		//	//
-		//
-		//	cfg, err := config.LoadDefaultConfig(context.TODO())
-		//	if err != nil {
-		//		return events.APIGatewayProxyResponse{Body: fmt.Sprintf("configuration error: %s", err.Error()), StatusCode: 500}, nil
-		//	}
-		//
-		//	//	run set key operation
-		//	keyID, err := keyFunctions.EncryptAndSaveKey(cfg, keyARN, secretTable, keyGenerationRequest, "")
-		//	if err != nil {
-		//		return events.APIGatewayProxyResponse{Body: err.Error(), StatusCode: 500}, nil
-		//	}
-		//
-		//	keyIDJSON, err := json.Marshal(signerTypes.Ciphertext{KeyID: keyID})
-		//	if err != nil {
-		//		return events.APIGatewayProxyResponse{Body: err.Error(), StatusCode: 500}, nil
-		//	}
-		//	return events.APIGatewayProxyResponse{Body: string(keyIDJSON), StatusCode: 200}, nil
-		//
-		//} else {
-		//	run generate key operation
 		enclaveResult, err := handleGenerateKeyRequest(nitroInstancePrivateDNS, keyGenerationRequest)
 		if err != nil {
 			return events.APIGatewayProxyResponse{Body: err.Error(), StatusCode: 500}, nil
@@ -108,7 +76,6 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		}
 
 		return events.APIGatewayProxyResponse{Body: string(enclaveResultJSON), StatusCode: 200}, nil
-		//}
 
 	//	enclave determines tx or user op based on passed parameters so no need to handle requests differently
 	case "ethTxSignature", "ethUserOpSignature":

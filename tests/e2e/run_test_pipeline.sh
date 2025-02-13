@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 #  Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #  SPDX-License-Identifier: MIT-0
 
@@ -16,4 +17,5 @@ sleep 360
 # run 20 instances with 100 requests (userOp, ethereumTx) each, total of 4000 signing request, 20 key generation requests
 ./tests/e2e/signing_load_test.sh load 20 100
 
+# remove deployment to trigger Route53 entries deletion via ExternalDNS, trigger stack deletion afterwards
 ./tests/e2e/cleanup.sh

@@ -26,3 +26,7 @@ func CalculateHMAC(transactionPayloadSerialized []byte, secret string, timestamp
 
 	return hmacHex
 }
+
+func TimestampInRange(providedTimestamp, ownTimestamp, maxDelta int) bool {
+	return ownTimestamp <= providedTimestamp+maxDelta
+}

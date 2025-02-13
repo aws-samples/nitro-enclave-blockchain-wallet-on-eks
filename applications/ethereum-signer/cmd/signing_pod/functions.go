@@ -7,6 +7,7 @@ SPDX-License-Identifier: MIT-0
 package main
 
 import (
+	"aws/ethereum-signer/internal/metrics"
 	"aws/ethereum-signer/internal/pod"
 	signerTypes "aws/ethereum-signer/internal/types"
 	"context"
@@ -16,33 +17,92 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dbTypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/mdlayher/vsock"
 	log "github.com/sirupsen/logrus"
+	"net"
 	"net/http"
+	"os"
 )
 
-var validate *validator.Validate
-
-type Env struct {
-	config       *aws.Config
-	secretsTable string
-	enclaveCID   uint64
-	enclavePort  uint64
+type TxSigner struct {
+	config      *aws.Config
+	enclaveCID  uint32
+	enclavePort uint32
+	validator   *validator.Validate
 }
 
-func (e *Env) getEncryptedKey(keyID string) (signerTypes.Ciphertext, error) {
+func NewSignerInstance(config *aws.Config, enclaveCID, enclavePort uint64) *TxSigner {
+	return &TxSigner{
+		config:      config,
+		enclaveCID:  uint32(enclaveCID),
+		enclavePort: uint32(enclavePort),
+		validator:   validator.New(),
+	}
+}
 
-	dynamoDBClient := dynamodb.NewFromConfig(*e.config)
+func setupLogging(logLevel string) error {
+	level, err := log.ParseLevel(logLevel)
+	if err != nil {
+		return fmt.Errorf("invalid LOG_LEVEL value (%s): %w", logLevel, err)
+	}
+	log.SetLevel(level)
+	log.Infof("LOG_LEVEL=%s", level)
+	return nil
+}
+
+func setupMetricsServer(enclavePort uint64) error {
+	listenerPort := uint32(enclavePort + metrics.PortOffset)
+	metricsServer := metrics.NewMetricsServer(3, listenerPort)
+	if err := metricsServer.Start(); err != nil {
+		return fmt.Errorf("failed to start metrics server on CID: %v, port: %v: %w", 3, listenerPort, err)
+	}
+	return nil
+}
+
+func setupRouter(config *aws.Config, enclaveID, enclavePort uint64) *gin.Engine {
+	router := gin.New()
+	router.Use(gin.Recovery())
+	signer := NewSignerInstance(config, enclaveID, enclavePort)
+	router.POST("/", signer.SignTransaction)
+
+	return router
+}
+
+type EnvVars struct {
+	SecretsTable string
+}
+
+func (txs *TxSigner) getEnvironmentVariables() (*EnvVars, error) {
+	secretsTable := os.Getenv("SECRETS_TABLE")
+
+	if secretsTable == "" {
+		return nil, fmt.Errorf("SECRETS_TABLE environment variable cannot be empty")
+	}
+
+	return &EnvVars{
+		SecretsTable: secretsTable,
+	}, nil
+}
+
+func (txs *TxSigner) getEncryptedKey(keyID string) (signerTypes.Ciphertext, error) {
+
+	dynamoDBClient := dynamodb.NewFromConfig(*txs.config)
 
 	keyIDValue, err := attributevalue.Marshal(keyID)
 	if err != nil {
 		return signerTypes.Ciphertext{}, fmt.Errorf("exception happened marshalling keyID into DynamoDB compatible query attribute:%s", err)
 	}
 
+	envVars, err := txs.getEnvironmentVariables()
+	if err != nil {
+		return signerTypes.Ciphertext{}, fmt.Errorf("exception happened getting environment variables:%s", err)
+	}
+
 	result, err := dynamoDBClient.GetItem(context.TODO(), &dynamodb.GetItemInput{
-		TableName: &e.secretsTable,
+		TableName: &envVars.SecretsTable,
 		Key:       map[string]dbTypes.AttributeValue{"key_id": keyIDValue},
 	},
 	)
@@ -65,7 +125,77 @@ func (e *Env) getEncryptedKey(keyID string) (signerTypes.Ciphertext, error) {
 	return encryptedKey, nil
 }
 
-func (e *Env) signTransaction(c *gin.Context) {
+func (txs *TxSigner) communicateWithEnclave(payload []byte) (*signerTypes.EnclaveResult, error) {
+	conn, err := vsock.Dial(txs.enclaveCID, txs.enclavePort, nil) //#nosec G115
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to enclave: %w", err)
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Errorf("failed to close connection: %v", err)
+		}
+	}()
+
+	if _, err := conn.Write(payload); err != nil {
+		return nil, fmt.Errorf("failed to write to enclave: %w", err)
+	}
+
+	response, err := txs.readEnclaveResponse(conn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read enclave response: %w", err)
+	}
+
+	return response, nil
+}
+
+func (txs *TxSigner) readEnclaveResponse(conn net.Conn) (*signerTypes.EnclaveResult, error) {
+	buf := make([]byte, 512)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read from connection: %w", err)
+	}
+	log.Debugf("raw enclave key generation result: %s", buf[:n])
+
+	var result signerTypes.EnclaveResult
+	if err := json.Unmarshal(buf[:n], &result); err != nil {
+		return nil, fmt.Errorf("failed to parse enclave response: %w", err)
+	}
+	log.Debugf("unmarshaled enclave result: %v", result)
+
+	return &result, nil
+}
+
+func (txs *TxSigner) handleError(c *gin.Context, status int, message string, err error) {
+	log.Errorf("%s: %v", message, err)
+	c.IndentedJSON(status, gin.H{"error": err.Error()})
+}
+
+func (txs *TxSigner) generatePayload(signingRequest signerTypes.SigningRequest, encryptedKey signerTypes.Ciphertext, creds *types.Credentials) ([]byte, error) {
+
+	// assemble enclave payload
+	payload := signerTypes.EnclaveSigningPayload{
+		Credential: signerTypes.AWSCredentials{
+			AccessKeyID:     *creds.AccessKeyId,
+			SecretAccessKey: *creds.SecretAccessKey,
+			Token:           *creds.SessionToken,
+		},
+		TransactionPayload: signingRequest.TransactionPayload,
+		EncryptedKey:       encryptedKey.Ciphertext,
+		Timestamp:          signingRequest.Timestamp,
+		HMAC:               signingRequest.HMAC,
+	}
+	log.Debugf("assembled signing payload: %v", payload)
+
+	serialized, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize payload: %w", err)
+	}
+	log.Debugf("serialized key generation payload: %q", serialized)
+	return serialized, nil
+
+}
+
+func (txs *TxSigner) SignTransaction(c *gin.Context) {
 	var newSigningRequest signerTypes.SigningRequest
 
 	if err := c.BindJSON(&newSigningRequest); err != nil {
@@ -73,91 +203,43 @@ func (e *Env) signTransaction(c *gin.Context) {
 	}
 	log.Debugf("incomming request: %v", newSigningRequest)
 
-	validate = validator.New()
-	err := validate.Struct(newSigningRequest)
+	//validate = validator.New()
+	err := txs.validator.Struct(newSigningRequest)
 	if err != nil {
 		validationErrors := err.(validator.ValidationErrors)
-		log.Warnf("incoming request could not be verified: %s", validationErrors)
-		c.IndentedJSON(http.StatusBadRequest, signerTypes.SignedTransaction{Error: validationErrors.Error()})
+		txs.handleError(c, http.StatusBadRequest, "incoming request could not be verified", validationErrors)
 		return
 	}
 
-	stsCredentials, err := pod.GetAWSWebIdentityCredentials(e.config, "ethereum-signer_session")
+	stsCredentials, err := pod.GetAWSWebIdentityCredentials(txs.config, "ethereum-signer_session")
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		txs.handleError(c, http.StatusInternalServerError, "exception happened gathering sts pod", err)
 		return
 	}
 	log.Debugf("gathered sts pod: %v", stsCredentials)
 
-	encryptedKey, err := e.getEncryptedKey(newSigningRequest.KeyID)
+	encryptedKey, err := txs.getEncryptedKey(newSigningRequest.KeyID)
 	if err != nil {
 		re, ok := err.(*signerTypes.SecretNotFoundError)
 		if ok {
-			c.IndentedJSON(http.StatusNotFound, gin.H{"error": re.Error()})
+			txs.handleError(c, http.StatusNotFound, "Requested secret could not be found in DynamoDB", re.Err)
 			return
 		}
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("exception happened downloading encrypted key from DynamoDB: %s", err)})
+		txs.handleError(c, http.StatusInternalServerError, "exception happened downloading encrypted key from DynamoDB", err)
 		return
 	}
 	log.Debugf("encrypted key: %v", encryptedKey)
 
-	// assemble enclave payload
-	payload := signerTypes.EnclaveSigningPayload{
-		Credential: signerTypes.AWSCredentials{
-			AccessKeyID:     *stsCredentials.AccessKeyId,
-			SecretAccessKey: *stsCredentials.SecretAccessKey,
-			Token:           *stsCredentials.SessionToken,
-		},
-		TransactionPayload: newSigningRequest.TransactionPayload,
-		EncryptedKey:       encryptedKey.Ciphertext,
-		Timestamp:          newSigningRequest.Timestamp,
-		HMAC:               newSigningRequest.HMAC,
-	}
-	log.Debugf("assembled signing payload: %v", payload)
-
-	conn, err := vsock.Dial(uint32(e.enclaveCID), uint32(e.enclavePort), nil) //#nosec G115
+	payload, err := txs.generatePayload(newSigningRequest, encryptedKey, stsCredentials)
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		txs.handleError(c, http.StatusInternalServerError, "exception happened generating payload", err)
 		return
 	}
 
-	payloadSerialized, err := json.Marshal(payload)
+	result, err := txs.communicateWithEnclave(payload)
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		txs.handleError(c, http.StatusInternalServerError, "exception happened communicating with enclave", err)
 		return
 	}
-	log.Debugf("serialized signing payload: %q", payloadSerialized)
-
-	_, err = conn.Write(payloadSerialized)
-	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	buf := make([]byte, 4096)
-
-	n, err := conn.Read(buf)
-	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	log.Debugf("read %v bytes into buffer", n)
-	err = conn.Close()
-	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	log.Debugf("raw enclave result: %s", buf)
-
-	var signingResult signerTypes.EnclaveResult
-
-	// status not enclosed in enclave result
-	err = json.Unmarshal(buf[:n], &signingResult)
-	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	log.Debugf("unmarshaled enclave result: %v", signingResult)
-
-	c.IndentedJSON(signingResult.Status, signingResult.Body)
+	c.IndentedJSON(result.Status, result.Body)
 }

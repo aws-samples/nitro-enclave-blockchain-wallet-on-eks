@@ -3,7 +3,6 @@ package metrics
 import (
 	metricTypes "aws/ethereum-signer/internal/types"
 	"encoding/json"
-	"fmt"
 	"github.com/mdlayher/vsock"
 	"github.com/prozz/aws-embedded-metrics-golang/emf"
 	log "github.com/sirupsen/logrus"
@@ -55,7 +54,6 @@ func (ms *Server) handleIncomingMetrics() error {
 
 	log.Infof("Listening for incoming metrics on %v:%v", ms.cid, ms.port)
 
-	// todo spawn go routine in go routine or just have for in main thread?
 	go func() {
 		for {
 			inMetrics, err := ln.Accept()
@@ -70,7 +68,7 @@ func (ms *Server) handleIncomingMetrics() error {
 			if err != nil {
 				log.Errorf("exception happened reading from incoming connection: %s", err)
 			}
-			log.Infof(fmt.Sprintf("read buffer length: %v", n))
+			log.Infof("read buffer length: %v", n)
 			log.Debugf("raw enclave metrics: %s", buf)
 
 			enclaveSystemMetrics := metricTypes.EnclaveSystemMetrics{}

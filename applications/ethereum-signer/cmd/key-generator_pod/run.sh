@@ -12,7 +12,6 @@ ENCLAVE_MEMORY_SIZE=1500
 vsock_port_1=$((VSOCK_BASE_PORT))
 vsock_port_2=$((vsock_port_1 + 1))
 
-#|| [[ "${LOG_LEVEL}" == "INFO" ]]
 if [[ "${LOG_LEVEL}" == "DEBUG" ]]; then
   debug="--debug-mode"
 else
@@ -65,4 +64,5 @@ vsock-proxy  "${vsock_port_1}" kms."${AWS_REGION}".amazonaws.com 443 --config ./
 vsock-proxy "${vsock_port_2}" dynamodb."${AWS_REGION}".amazonaws.com 443 --config ./vsock-proxy.yaml -w 20 &
 
 generate_tls_artifact "${FQDN}"
+
 ./key-generator_pod
