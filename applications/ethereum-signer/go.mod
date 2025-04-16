@@ -1,8 +1,7 @@
 module aws/ethereum-signer
 
 go 1.21.0
-
-toolchain go1.22.4
+toolchain go1.24.1
 
 require (
 	github.com/aws/aws-lambda-go v1.37.0
@@ -14,7 +13,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/mdlayher/vsock v1.2.0
 	github.com/sirupsen/logrus v1.9.0
-	golang.org/x/net v0.33.0
+	golang.org/x/net v0.38.0
 )
 
 require (
@@ -58,7 +57,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/arch v0.10.0 // indirect
 	golang.org/x/exp v0.0.0-20240112132812-db7319d0e0e3 // indirect
-	golang.org/x/sync v0.10.0 // indirect
+	golang.org/x/sync v0.12.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
 )
@@ -88,9 +87,9 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/crypto v0.36.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )
 
