@@ -15,7 +15,8 @@ from aws_cdk import (
     aws_ecr_assets as ecr_assets,
     CfnOutput,
 )
-from aws_cdk import lambda_layer_kubectl_v27
+
+from aws_cdk import lambda_layer_kubectl_v33
 from cdk_nag import NagSuppressions, NagPackSuppression
 from constructs import Construct
 
@@ -33,8 +34,10 @@ class EksNitroWalletStack(Stack):
         target_architecture = os.getenv("CDK_TARGET_ARCHITECTURE", "linux/amd64")
         target_architecture_config = {
             "linux/amd64": {
-                "ami_type": eks.NodegroupAmiType.AL2_X86_64,
-                "instance_type": "m5a.2xlarge",
+                # "ami_type": eks.NodegroupAmiType.AL2_X86_64,
+                "ami_type": eks.NodegroupAmiType.AL2023_X86_64_STANDARD,
+                # "instance_type": "m5a.2xlarge",
+                "instance_type": "m6a.4xlarge",
                 "platform": ecr_assets.Platform.LINUX_AMD64,
             },
             "linux/arm64": {
@@ -154,7 +157,10 @@ class EksNitroWalletStack(Stack):
             version=nitro_enclave_launch_template.attr_latest_version_number,
         )
 
-        kubectl_layer = lambda_layer_kubectl_v27.KubectlV27Layer(
+        # kubectl_layer = lambda_layer_kubectl_v32.KubectlV32Layer(
+        #     self, "nitro-eks-kubectl-layer"
+        # )
+        kubectl_layer = lambda_layer_kubectl_v33.KubectlV33Layer(
             self, "nitro-eks-kubectl-layer"
         )
 
@@ -162,7 +168,7 @@ class EksNitroWalletStack(Stack):
             self,
             "nitro-eks-cluster",
             # custom kubernetes version requires a region specific custom ami - see launch template definition above
-            version=eks.KubernetesVersion.of(version="1.27"),
+            version=eks.KubernetesVersion.of(version="1.33"),
             kubectl_layer=kubectl_layer,
             vpc=vpc,
             default_capacity=0,
@@ -341,8 +347,19 @@ class EksNitroWalletStack(Stack):
             version="0.2.0",
             repository="oci://public.ecr.aws/aws-nitro-enclaves/charts/aws-nitro-enclaves-k8s-device-plugin",
             namespace="kube-system",
+            # values={
+            #     "awsNitroEnclavesK8SDaemonset": {"awsNitroEnclavesK8SDp": {"env": {"enclaveCpuAdvertisement": "true"
+            #                                                                        }}}},
             create_namespace=False,
         )
+
+        # custom function to apply customized manifests to the EKS clusterd
+        # apply_k8s_nitro_operator(
+        #    self,
+        #    folder="applications/ethereum-signer/third_party",
+        #    cluster=cluster,
+        #    platform=target_architecture_config[target_architecture]["platform"],
+        # )
 
         ssm.StringParameter(
             self,
@@ -416,6 +433,14 @@ class EksNitroWalletStack(Stack):
                 NagPackSuppression(
                     id="AwsSolutions-L1",
                     reason="Non-container Lambda function managed by predefined EKS templates for CDK",
+                ),
+                NagPackSuppression(
+                    id="AwsSolutions-SF1",
+                    reason="Step Function does not need to log to CloudWatch for POC deployment",
+                ),
+                NagPackSuppression(
+                    id="AwsSolutions-SF2",
+                    reason="Step Function does not need to have X-Ray enabled for POC deployment",
                 ),
             ],
             apply_to_children=True,

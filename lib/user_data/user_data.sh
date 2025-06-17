@@ -9,7 +9,7 @@ Content-Disposition: attachment; filename="cloud-config.txt"
 
 #cloud-config
 bootcmd:
-  - [ amazon-linux-extras, install, aws-nitro-enclaves-cli ]
+ - dnf install aws-nitro-enclaves-cli -y
 
 --//
 Content-Type: text/x-shellscript; charset="us-ascii"
@@ -25,7 +25,9 @@ set -x
 
 readonly NE_ALLOCATOR_SPEC_PATH="/etc/nitro_enclaves/allocator.yaml"
 # Node resources that will be allocated for Nitro Enclaves
-readonly CPU_COUNT=4
+# 16
+readonly CPU_COUNT=12
+# 64
 readonly MEMORY_MIB=16384
 #readonly MEMORY_MIB=16896
 
