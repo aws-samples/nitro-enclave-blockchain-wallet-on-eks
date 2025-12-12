@@ -15,8 +15,8 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=${TARGETARCH} \
 ARG SKIP_TEST_ARG
 
 # can be made optional if required
-#RUN if [ "$SKIP_TEST_ARG" != "true" ]; then go install honnef.co/go/tools/cmd/staticcheck@latest && \
-#    go install github.com/securego/gosec/v2/cmd/gosec@latest; fi
+RUN if [ "$SKIP_TEST_ARG" != "true" ]; then go install honnef.co/go/tools/cmd/staticcheck@latest && \
+   go install github.com/securego/gosec/v2/cmd/gosec@latest; fi
 RUN --mount=type=cache,target=/go/pkg/mod,id=${TARGETARCH} \
     --mount=type=cache,target=/root/.cache/go-build,id=${TARGETARCH} \
     go install honnef.co/go/tools/cmd/staticcheck@latest

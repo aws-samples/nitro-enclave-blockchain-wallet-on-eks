@@ -7,7 +7,6 @@ __pycache__
 
 # CDK asset staging directory
 .cdk.staging
-cdk.out
 .idea
 AppOutput*
 EksOutput*
@@ -24,6 +23,8 @@ applications/ethereum-signer/third_party/*
 .DS_Store
 cdk.out.*
 *.json
-.vsock_base_port_assignments.tmp
 applications/ethereum-signer/cmd/kmstool-cli/kmstool-cli
 applications/ethereum-signer/vendor
+*.tmp
+*.env
+*.out
