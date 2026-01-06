@@ -317,10 +317,10 @@ class EksNitroWalletStack(Stack):
             "nitro-eks-externalDNS",
             cluster=cluster,
             chart="external-dns",
-            version="6.28.6",
+            version="1.20.0",
             namespace=external_dns_name,
             create_namespace=True,
-            repository="https://charts.bitnami.com/bitnami",
+            repository="https://kubernetes-sigs.github.io/external-dns",
             values={
                 "provider": "aws",
                 "aws": {"region": self.region, "zoneType": "private"},
@@ -340,7 +340,6 @@ class EksNitroWalletStack(Stack):
             chart="aws-nitro-enclaves-k8s-ds-chart",
             version="0.3.1",
             repository="oci://public.ecr.aws/aws-nitro-enclaves/charts/aws-nitro-enclaves-k8s-device-plugin",
-            # repository="oci://public.ecr.aws/v1t5w1s5/aws-nitro-enclaves/charts/aws-nitro-enclaves-k8s-device-plugin",
             namespace="kube-system",
             create_namespace=False,
         )
