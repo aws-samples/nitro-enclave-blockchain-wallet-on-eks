@@ -1,14 +1,10 @@
 #  Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 #  SPDX-License-Identifier: MIT-0
+FROM amazonlinux:2023 as build_image
 
-# todo upgrade to al 2023
-# yum to be replace by dnf
-FROM amazonlinux:2 as build_image
-
-RUN amazon-linux-extras install aws-nitro-enclaves-cli && \
-    yum install aws-nitro-enclaves-cli-devel jq -y
+RUN dnf install aws-nitro-enclaves-cli aws-nitro-enclaves-cli-devel -y
 
 ######## app image ########
 FROM build_image as pod_image
 
-RUN yum install python3 awscli jq -y
+RUN dnf install python3 awscli jq -y

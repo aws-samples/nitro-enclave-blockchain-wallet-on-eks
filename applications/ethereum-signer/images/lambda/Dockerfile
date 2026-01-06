@@ -17,6 +17,6 @@ RUN if [ "$SKIP_TEST_ARG" != "true" ]; then staticcheck $lambda_folders && \
 RUN go build -ldflags="-X main.version=v0.0.1" -o /main ./cmd/lambda
 
 # copy artifacts to a clean image
-FROM public.ecr.aws/lambda/provided:al2 AS prod
+FROM public.ecr.aws/lambda/provided:al2023 AS prod
 COPY --from=build /main /main
 ENTRYPOINT [ "/main" ]

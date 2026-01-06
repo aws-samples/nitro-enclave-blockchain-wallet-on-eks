@@ -17,10 +17,10 @@ RUN CGO_ENABLED=0 go build -ldflags="-X main.version=v0.0.1" ./cmd/key-generator
 
 ## deploy image including required nitro-cli binaries
 FROM nitro_eks_pod_base_image:latest AS prod
-RUN yum update -y && \
-    yum install openssl openssl11 gettext -y && \
-    yum clean all && \
-    rm -rf /var/cache/yum
+RUN dnf update -y && \
+    dnf install openssl gettext -y && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
 
 RUN touch ~/.rnd
 

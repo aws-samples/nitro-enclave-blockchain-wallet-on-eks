@@ -20,16 +20,18 @@ vsock_port_1=$((VSOCK_BASE_PORT))
 generate_tls_artifact() {
   local fqdn=${1}
 
-  openssl11 ecparam -name prime256v1 -genkey -noout -out private-key.pem
+  openssl ecparam -name prime256v1 -genkey -noout -out private-key.pem
 
   # generate associated public key
-  openssl11 ec -in private-key.pem -pubout -out public-key.pem
+  openssl ec -in private-key.pem -pubout -out public-key.pem
 
   # generate self-signed x509 certificate for EC2 instance
   host=$(echo "${fqdn}" | tr "." "\n" | head -n 1)
 
   # requires openssl > 1.1.1 / is 1.0.2k
-  openssl11 req -new -x509 -key private-key.pem -out cert.pem -days 360 -subj "/C=US/O=AWS/OU=Blockchain Compute/CN=${host}" --addext "subjectAltName=DNS:${fqdn}"
+  openssl req -new -x509 -key private-key.pem -out cert.pem -days 360 \
+   -subj "/C=US/O=AWS/OU=Blockchain Compute/CN=${host}" \
+   -addext "subjectAltName = DNS:${fqdn}"
 }
 
 enclave_image_uri=$(aws ssm get-parameter --region "${AWS_REGION}" --name "${ENCLAVE_IMAGE_URI_SSM}" | jq -r '.Parameter.Value')
