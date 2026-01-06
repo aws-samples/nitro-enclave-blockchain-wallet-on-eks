@@ -49,7 +49,8 @@ if [[ "${task}" == "integration" ]]; then
     --env-var "user_op_hash=${user_op_hash}" \
     --env-var "eth_key=${tmp_ethereum_key}" \
     --env-var "key_id=${key_id}" \
-    --verbose
+    --bail
+	# --verbose  \
 fi
 
 if [[ "${task}" == "load" ]]; then
@@ -67,7 +68,7 @@ if [[ "${task}" == "load" ]]; then
       --env-var "key_id=${key_id}" \
       --env-var "iterations=${runners}" \
       --bail
-#      --verbose \
+    #  --verbose \
 
   # give enclave a few seconds to propagate keys to DynamoDB
   sleep 5
