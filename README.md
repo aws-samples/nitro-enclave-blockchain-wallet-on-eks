@@ -116,15 +116,15 @@ for `CDK_REFIX`.
 export CDK_DEPLOY_REGION=eu-central-1
 export CDK_DEPLOY_ACCOUNT=$(aws sts get-caller-identity | jq -r '.Account')
 export CDK_PREFIX=dev
-export CDK_TARGET_ARCHITECTURE=linux/amd64
-```
-
-If the EKS cluster should be deployed on AWS Graviton instances, set the following environment variable:
-
-```shell
 export CDK_TARGET_ARCHITECTURE=linux/arm64
 ```
-Per default, `'linux/amd64` is being chosen for now due to the easier downstream dependency and build management.
+
+If the EKS cluster should be deployed on x86 instances, set the following environment variable:
+
+```shell
+export CDK_TARGET_ARCHITECTURE=linux/amd64
+```
+Per default, `linux/arm64` (AWS Graviton) is being chosen for better price-performance.
 
 1. Deploy the EKS cluster and other required services:
 

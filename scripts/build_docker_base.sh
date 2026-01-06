@@ -4,7 +4,7 @@
 set +x
 set -e
 
-target_architecture=${CDK_TARGET_ARCHITECTURE:-linux/amd64}
+target_architecture=${CDK_TARGET_ARCHITECTURE:-linux/arm64}
 
 BASE_DOCKER_PATH="./lib/docker"
 NITRO_EKS_POD_BASE_IMAGE_FILE="Dockerfile_pod"

@@ -5,7 +5,7 @@ set +x
 set -e
 
 application=${1}
-target_architecture=${CDK_TARGET_ARCHITECTURE:-linux/amd64}
+target_architecture=${CDK_TARGET_ARCHITECTURE:-linux/arm64}
 architecture=$(echo "${target_architecture}" | cut -d "/" -f 2)
 
 NITRO_ENCLAVE_CLI_VERSION="v0.4.1"

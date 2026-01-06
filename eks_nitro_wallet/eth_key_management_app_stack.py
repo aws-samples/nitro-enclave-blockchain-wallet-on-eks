@@ -30,7 +30,7 @@ class NitroWalletAppStack(Stack):
 
         # default to warning if parameter is provided as constructor argument
         prefix = os.getenv("CDK_PREFIX", "")
-        target_architecture = os.getenv("CDK_TARGET_ARCHITECTURE", "linux/amd64")
+        target_architecture = os.getenv("CDK_TARGET_ARCHITECTURE", "linux/arm64")
         target_architecture_config = {
             "linux/amd64": {"platform": ecr_assets.Platform.LINUX_AMD64},
             "linux/arm64": {"platform": ecr_assets.Platform.LINUX_ARM64},

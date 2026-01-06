@@ -30,7 +30,7 @@ class EksNitroWalletStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         prefix = os.getenv("CDK_PREFIX", "")
-        target_architecture = os.getenv("CDK_TARGET_ARCHITECTURE", "linux/amd64")
+        target_architecture = os.getenv("CDK_TARGET_ARCHITECTURE", "linux/arm64")
         target_architecture_config = {
             "linux/amd64": {
                 "ami_type": eks.NodegroupAmiType.AL2023_X86_64_STANDARD,
@@ -340,6 +340,7 @@ class EksNitroWalletStack(Stack):
             chart="aws-nitro-enclaves-k8s-ds-chart",
             version="0.3.1",
             repository="oci://public.ecr.aws/aws-nitro-enclaves/charts/aws-nitro-enclaves-k8s-device-plugin",
+            # repository="oci://public.ecr.aws/v1t5w1s5/aws-nitro-enclaves/charts/aws-nitro-enclaves-k8s-device-plugin",
             namespace="kube-system",
             create_namespace=False,
         )

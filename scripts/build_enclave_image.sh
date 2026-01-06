@@ -7,7 +7,7 @@ set -e
 application=${1}
 [ -z "${application}" ] && echo "application parameter needs to be specified: ethereum-signer, ethereum-key-generator" && exit 1
 
-target_architecture=${CDK_TARGET_ARCHITECTURE:-linux/amd64}
+target_architecture=${CDK_TARGET_ARCHITECTURE:-linux/arm64}
 architecture=$(echo "${target_architecture}" | cut -d "/" -f 2)
 
 # parameters statically provided to the enclaves environment via docker build args
