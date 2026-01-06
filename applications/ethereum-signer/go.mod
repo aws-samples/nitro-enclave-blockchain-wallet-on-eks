@@ -1,8 +1,6 @@
 module aws/ethereum-signer
 
-go 1.21.0
-
-toolchain go1.22.4
+go 1.23.0
 
 require (
 	github.com/aws/aws-lambda-go v1.37.0
