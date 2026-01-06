@@ -4,7 +4,7 @@
 set +x
 set -e
 
-target_architecture=${CDK_TARGET_ARCHITECTURE:-linux/amd64}
+target_architecture=${CDK_TARGET_ARCHITECTURE:-linux/arm64}
 PROXY_TARGET_DIRECTORY="./applications/ethereum-signer/third_party/proxy"
 
 if [[ ! -d ${PROXY_TARGET_DIRECTORY} ]]; then
