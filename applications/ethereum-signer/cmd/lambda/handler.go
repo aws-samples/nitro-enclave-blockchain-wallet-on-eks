@@ -13,12 +13,13 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"github.com/go-playground/validator/v10"
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 )
 
 var validate *validator.Validate
@@ -55,7 +56,7 @@ func handleSigningRequest(nitroInstancePrivateDNS string, userRequestPayload sig
 	hostName := fmt.Sprintf("%s.%s", "ethereum-signer", nitroInstancePrivateDNS)
 	enclaveResponseRaw, statusCode, err := handleEnclaveRequest(hostName, transactionSigningRequestSerialized)
 	if err != nil {
-		return signerTypes.UserResponse{}, nil
+		return signerTypes.UserResponse{}, err
 	}
 
 	enclaveResponse := signerTypes.SignedTransaction{}
