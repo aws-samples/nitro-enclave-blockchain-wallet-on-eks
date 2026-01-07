@@ -93,6 +93,10 @@ if [[ "$DEPLOY_CLUSTER" == "true" ]]; then
 
     # parse kubectl config command from json file
     ./scripts/configure_environment.sh "${CDK_PREFIX}EksClusterOutput.json"
+    
+    # Run cluster health check
+    echo "=== Running cluster health check ==="
+    ./tests/e2e/healthcheck.sh
 fi
 
 if [[ "$BUILD_ENCLAVE" == "true" ]]; then
