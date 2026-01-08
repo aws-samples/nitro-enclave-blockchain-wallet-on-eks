@@ -115,6 +115,10 @@ if [[ "$DEPLOY_APP" == "true" ]]; then
     kms_key_id=$(aws ssm get-parameter --name "/${CDK_PREFIX}app/ethereum/key_id" --region "${CDK_DEPLOY_REGION}" | jq -r ".Parameter.Value")
     ./scripts/generate_key_policy.sh ethereum-signer >key_policy.json
     aws kms put-key-policy --region "${CDK_DEPLOY_REGION}" --policy-name default --key-id "${kms_key_id}" --policy file://key_policy.json
+
+    # Run health check including app deployments
+    echo "=== Running health check with app deployments ==="
+    CHECK_APP_DEPLOYMENTS=true ./tests/e2e/healthcheck.sh
 fi
 
 echo "=== Setup complete ==="

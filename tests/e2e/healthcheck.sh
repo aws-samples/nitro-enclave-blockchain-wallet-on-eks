@@ -7,22 +7,15 @@ set -e
 
 TIMEOUT=${HEALTHCHECK_TIMEOUT:-300}
 INTERVAL=10
+CHECK_APP_DEPLOYMENTS=${CHECK_APP_DEPLOYMENTS:-false}
 
 echo "=== Cluster Health Check ==="
 
-# Helm chart namespaces and expected deployments/daemonsets
-declare -A HELM_CHECKS=(
-    ["kube-system"]="aws-nitro-enclaves-k8s-ds"
-    ["external-dns"]="external-dns"
-    ["aws-for-fluent-bit"]="aws-for-fluent-bit"
-    ["metrics-server"]="metrics-server"
-)
+# Helm chart checks: "namespace:component"
+HELM_CHECKS="kube-system:aws-nitro-enclaves-k8s-ds external-dns:external-dns aws-for-fluent-bit:aws-for-fluent-bit metrics-server:metrics-server"
 
-# App deployments in default namespace
-APP_DEPLOYMENTS=(
-    "ethereum-signer-deployment"
-    "ethereum-key-generator-deployment"
-)
+# App deployments in default namespace (only checked if CHECK_APP_DEPLOYMENTS=true)
+APP_DEPLOYMENTS="ethereum-signer-deployment ethereum-key-generator-deployment"
 
 check_pods_in_namespace() {
     local namespace=$1
@@ -30,8 +23,8 @@ check_pods_in_namespace() {
     
     echo "Checking ${component} in namespace ${namespace}..."
     
-    # Get pod count and ready count
-    local total=$(kubectl get pods -n "${namespace}" -l "app.kubernetes.io/name=${component}" --no-headers 2>/dev/null | wc -l || echo 0)
+    # Get pod count - use awk to get clean number
+    local total=$(kubectl get pods -n "${namespace}" -l "app.kubernetes.io/name=${component}" --no-headers 2>/dev/null | wc -l | awk '{print $1+0}')
     local ready=$(kubectl get pods -n "${namespace}" -l "app.kubernetes.io/name=${component}" --no-headers 2>/dev/null | grep -c "Running" || echo 0)
     
     # Fallback: check by partial name match if label selector returns nothing
@@ -39,6 +32,10 @@ check_pods_in_namespace() {
         total=$(kubectl get pods -n "${namespace}" --no-headers 2>/dev/null | grep -c "${component}" || echo 0)
         ready=$(kubectl get pods -n "${namespace}" --no-headers 2>/dev/null | grep "${component}" | grep -c "Running" || echo 0)
     fi
+    
+    # Ensure numeric values
+    total=$((total + 0))
+    ready=$((ready + 0))
     
     if [[ "$total" -eq 0 ]]; then
         echo "  ⚠ No pods found for ${component}"
@@ -66,9 +63,9 @@ check_deployment_ready() {
     local ready=$(kubectl get deployment "${deployment}" -n "${namespace}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
     local desired=$(kubectl get deployment "${deployment}" -n "${namespace}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)
     
-    if [[ -z "$ready" ]]; then
-        ready=0
-    fi
+    # Ensure numeric values
+    ready=$((${ready:-0} + 0))
+    desired=$((${desired:-0} + 0))
     
     if [[ "$ready" -ge "$desired" && "$desired" -gt 0 ]]; then
         echo "  ✓ ${deployment}: ${ready}/${desired} replicas ready"
@@ -120,19 +117,22 @@ wait_for_all_healthy() {
         local failed=false
         
         # Check helm chart components
-        for namespace in "${!HELM_CHECKS[@]}"; do
-            component="${HELM_CHECKS[$namespace]}"
+        for check in $HELM_CHECKS; do
+            namespace=$(echo "$check" | cut -d: -f1)
+            component=$(echo "$check" | cut -d: -f2)
             if ! check_pods_in_namespace "$namespace" "$component"; then
                 failed=true
             fi
         done
         
-        # Check app deployments
-        for deployment in "${APP_DEPLOYMENTS[@]}"; do
-            if ! check_deployment_ready "$deployment" "default"; then
-                failed=true
-            fi
-        done
+        # Check app deployments only if requested
+        if [[ "$CHECK_APP_DEPLOYMENTS" == "true" ]]; then
+            for deployment in $APP_DEPLOYMENTS; do
+                if ! check_deployment_ready "$deployment" "default"; then
+                    failed=true
+                fi
+            done
+        fi
         
         # Check for error states
         if ! check_for_error_states; then
