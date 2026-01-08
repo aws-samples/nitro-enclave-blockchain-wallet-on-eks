@@ -1,0 +1,19 @@
+# Ignore vendor directory - use go modules directly
+vendor/
+
+# Ignore build artifacts
+*.eif
+third_party/eif/
+
+# Ignore test artifacts
+*.test
+coverage.out
+
+# Ignore IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ignore OS files
+.DS_Store
