@@ -338,7 +338,7 @@ class EksNitroWalletStack(Stack):
             "aws-nitro-enclaves-k8s-ds",
             cluster=cluster,
             chart="aws-nitro-enclaves-k8s-ds-chart",
-            version="0.3.1",
+            version="0.4.0",
             repository="oci://public.ecr.aws/aws-nitro-enclaves/charts/aws-nitro-enclaves-k8s-device-plugin",
             namespace="kube-system",
             create_namespace=False,

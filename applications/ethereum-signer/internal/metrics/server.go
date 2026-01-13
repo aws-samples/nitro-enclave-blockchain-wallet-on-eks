@@ -3,12 +3,13 @@ package metrics
 import (
 	metricTypes "aws/ethereum-signer/internal/types"
 	"encoding/json"
-	"github.com/mdlayher/vsock"
-	"github.com/prozz/aws-embedded-metrics-golang/emf"
-	log "github.com/sirupsen/logrus"
 	"net"
 	"os"
 	"strings"
+
+	"github.com/mdlayher/vsock"
+	"github.com/prozz/aws-embedded-metrics-golang/emf"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -69,7 +70,7 @@ func (ms *Server) handleIncomingMetrics() error {
 				log.Errorf("exception happened reading from incoming connection: %s", err)
 			}
 			log.Infof("read buffer length: %v", n)
-			log.Debugf("raw enclave metrics: %s", buf)
+			log.Debugf("raw enclave metrics: %s", buf[:n])
 
 			enclaveSystemMetrics := metricTypes.EnclaveSystemMetrics{}
 
