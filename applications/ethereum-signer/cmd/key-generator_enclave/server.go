@@ -15,13 +15,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
+	"net"
+	"sync"
+	"time"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-playground/validator/v10"
 	"github.com/mdlayher/vsock"
 	log "github.com/sirupsen/logrus"
-	"net"
-	"sync"
-	"time"
 )
 
 const (
@@ -64,6 +66,8 @@ func (s *Server) Initialize() error {
 	}
 
 	s.setupMetrics()
+	// Demo code to produce sin shaped CPU load pattern - uncomment below to enable
+	// s.startCPULoad()
 	return nil
 }
 
@@ -98,6 +102,41 @@ func (s *Server) setupMetrics() {
 	s.metricsClient.Start()
 	log.Infof("metrics client started with target cid: %d, port: %d",
 		metricsCID, s.config.Port+metrics.PortOffset)
+}
+
+// startCPULoad generates CPU load following a sine wave pattern (10%-90%) on both vCPUs
+func (s *Server) startCPULoad() {
+	numCPUs := 2
+	cycleDuration := 600 * time.Second // Full sine wave cycle (10 minutes)
+
+	for i := 0; i < numCPUs; i++ {
+		go func() {
+			startTime := time.Now()
+			for {
+				// Calculate current position in sine wave (0 to 2π)
+				elapsed := time.Since(startTime).Seconds()
+				phase := (elapsed / cycleDuration.Seconds()) * 2 * 3.14159265359
+
+				// Sine wave oscillates -1 to 1, scale to 0.10 to 0.90
+				sineValue := (math.Sin(phase) + 1) / 2
+				loadPercent := 0.10 + 0.80*sineValue
+
+				// 100ms cycle: spin for loadPercent, sleep for rest
+				cyclePeriod := 100 * time.Millisecond
+				spinDuration := time.Duration(float64(cyclePeriod) * loadPercent)
+				sleepDuration := cyclePeriod - spinDuration
+
+				// Spin phase
+				spinStart := time.Now()
+				for time.Since(spinStart) < spinDuration {
+					_ = 1 + 1
+				}
+				// Sleep phase
+				time.Sleep(sleepDuration)
+			}
+		}()
+	}
+	log.Info("CPU load generator started (sine wave 10%-90% on 2 vCPUs, 10min cycle)")
 }
 
 func (s *Server) Run() {
