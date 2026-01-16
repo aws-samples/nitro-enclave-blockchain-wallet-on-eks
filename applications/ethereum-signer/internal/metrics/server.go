@@ -63,7 +63,7 @@ func (ms *Server) handleIncomingMetrics() error {
 				continue
 			}
 
-			buf := make([]byte, 512)
+			buf := make([]byte, 1024)
 
 			n, err := inMetrics.Read(buf)
 			if err != nil {
@@ -81,12 +81,7 @@ func (ms *Server) handleIncomingMetrics() error {
 			}
 			log.Debugf("unmarshaled enclave metrics payload: %v", enclaveSystemMetrics)
 
-			ms.createEMFLogs(
-				enclaveSystemMetrics.CPUConsumptionUser,
-				enclaveSystemMetrics.CPUConsumptionSystem,
-				enclaveSystemMetrics.MemoryUsed,
-				enclaveSystemMetrics.MemoryCached,
-			)
+			ms.createEMFLogs(enclaveSystemMetrics)
 
 			err = inMetrics.Close()
 			if err != nil {
@@ -103,14 +98,24 @@ func (ms *Server) Start() error {
 	return err
 }
 
-func (ms *Server) createEMFLogs(enclaveCPUUser int, enclaveCPUSystem int, enclaveMemoryUsed int, enclaveMemoryCached int) {
+func (ms *Server) createEMFLogs(m metricTypes.EnclaveSystemMetrics) {
 	emf.New(emf.WithoutDimensions()).Namespace("NitroEnclave").DimensionSet(
 		emf.NewDimension("NodeName", ms.nodeName),
 		emf.NewDimension("Deployment", ms.deploymentName),
 		emf.NewDimension("Pod", ms.podName)).
 		MetricsAs(map[string]int{
-			"enclave_memory_utilization_used":   enclaveMemoryUsed,
-			"enclave_memory_utilization_cached": enclaveMemoryCached,
-			"enclave_cpu_utilization_user":      enclaveCPUUser,
-			"enclave_cpu_utilization_system":    enclaveCPUSystem}, emf.Percent).Log()
+			// Average values
+			"enclave_cpu_utilization_user":   m.CPUConsumptionUser,
+			"enclave_cpu_utilization_system": m.CPUConsumptionSystem,
+			"enclave_memory_utilization":     m.MemoryUsed,
+			"enclave_memory_cached":          m.MemoryCached,
+			// Min values (for baseline)
+			"enclave_cpu_user_min":   m.CPUUserMin,
+			"enclave_cpu_system_min": m.CPUSystemMin,
+			"enclave_memory_min":     m.MemoryUsedMin,
+			// Max values (for spike detection)
+			"enclave_cpu_user_max":   m.CPUUserMax,
+			"enclave_cpu_system_max": m.CPUSystemMax,
+			"enclave_memory_max":     m.MemoryUsedMax,
+		}, emf.Percent).Log()
 }
