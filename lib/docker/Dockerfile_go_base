@@ -2,18 +2,18 @@
 #  SPDX-License-Identifier: MIT-0
 
 ## build
-FROM golang:1.24.11-bookworm AS go_base
+FROM golang:1.24.12-bookworm AS go_base
 ARG TARGETARCH
 WORKDIR /app
 
+# ENV GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=direct
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod,id=${TARGETARCH} \
-    --mount=type=cache,target=/root/.cache/go-build,id=${TARGETARCH} \
-    go mod download
+# No cache mount - bake modules into image layer for child images
+RUN go mod download
 
-RUN --mount=type=cache,target=/go/pkg/mod,id=${TARGETARCH} \
-    --mount=type=cache,target=/root/.cache/go-build,id=${TARGETARCH} \
+# Tools use cache mount for build cache only - binaries go to GOPATH/bin
+RUN --mount=type=cache,target=/root/.cache/go-build,id=${TARGETARCH} \
     go install honnef.co/go/tools/cmd/staticcheck@2024.1.1 & \
     go install github.com/securego/gosec/v2/cmd/gosec@v2.21.4 & \
     wait
