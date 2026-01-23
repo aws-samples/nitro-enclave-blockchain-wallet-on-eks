@@ -11,13 +11,18 @@ import (
 	"aws/ethereum-signer/internal/keymanagement"
 	"aws/ethereum-signer/internal/metrics"
 	signerTypes "aws/ethereum-signer/internal/types"
+	"bufio"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net"
+	"os"
+	"runtime"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -68,6 +73,9 @@ func (s *Server) Initialize() error {
 	s.setupMetrics()
 	// Demo code to produce sin shaped CPU load pattern - uncomment below to enable
 	// s.startCPULoad()
+
+	// Demo code to log hardware environment - uncomment below to enable
+	// s.LogHardwareEnvironment()
 	return nil
 }
 
@@ -268,4 +276,169 @@ func (s *Server) sendResponse(conn net.Conn, keyID, address string) error {
 	}
 
 	return nil
+}
+
+// LogHardwareEnvironment logs detailed hardware environment information including
+// CPU cores, memory, network interfaces, and disk configuration.
+func (s *Server) LogHardwareEnvironment() {
+	log.Debug("=== Hardware Environment Information ===")
+
+	// CPU Information
+	s.logCPUInfo()
+
+	// Memory Information
+	s.logMemoryInfo()
+
+	// Network Information
+	s.logNetworkInfo()
+
+	// Disk Information
+	s.logDiskInfo()
+
+	log.Debug("=== End Hardware Environment Information ===")
+}
+
+func (s *Server) logCPUInfo() {
+	log.Debugf("CPU Cores (logical): %d", runtime.NumCPU())
+	log.Debugf("GOMAXPROCS: %d", runtime.GOMAXPROCS(0))
+	log.Debugf("Go Version: %s", runtime.Version())
+	log.Debugf("Architecture: %s", runtime.GOARCH)
+	log.Debugf("OS: %s", runtime.GOOS)
+
+	// Read /proc/cpuinfo for detailed CPU info (Linux-specific)
+	if cpuInfo, err := os.ReadFile("/proc/cpuinfo"); err == nil {
+		lines := strings.Split(string(cpuInfo), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "model name") ||
+				strings.HasPrefix(line, "cpu MHz") ||
+				strings.HasPrefix(line, "cache size") {
+				log.Debugf("CPU: %s", strings.TrimSpace(line))
+			}
+		}
+
+		// Log raw /proc/cpuinfo content
+		log.Debug("--- Raw /proc/cpuinfo ---")
+		log.Debug(string(cpuInfo))
+		log.Debug("--- End /proc/cpuinfo ---")
+	} else {
+		log.Debugf("CPU: unable to read /proc/cpuinfo: %v", err)
+	}
+}
+
+func (s *Server) logMemoryInfo() {
+	// Read /proc/meminfo for memory details (Linux-specific)
+	if memInfo, err := os.ReadFile("/proc/meminfo"); err == nil {
+		lines := strings.Split(string(memInfo), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "MemTotal") ||
+				strings.HasPrefix(line, "MemFree") ||
+				strings.HasPrefix(line, "MemAvailable") ||
+				strings.HasPrefix(line, "Buffers") ||
+				strings.HasPrefix(line, "Cached") ||
+				strings.HasPrefix(line, "SwapTotal") ||
+				strings.HasPrefix(line, "SwapFree") {
+				log.Debugf("Memory: %s", strings.TrimSpace(line))
+			}
+		}
+	} else {
+		log.Debugf("Memory: unable to read /proc/meminfo: %v", err)
+	}
+
+	// Go runtime memory stats
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	log.Debugf("Go Heap Alloc: %d MB", memStats.HeapAlloc/1024/1024)
+	log.Debugf("Go Heap Sys: %d MB", memStats.HeapSys/1024/1024)
+	log.Debugf("Go Total Alloc: %d MB", memStats.TotalAlloc/1024/1024)
+}
+
+func (s *Server) logNetworkInfo() {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		log.Debugf("Network: unable to get interfaces: %v", err)
+		return
+	}
+
+	for _, iface := range interfaces {
+		log.Debugf("Network Interface: %s (Index: %d, MTU: %d, Flags: %s)",
+			iface.Name, iface.Index, iface.MTU, iface.Flags.String())
+
+		if iface.HardwareAddr != nil {
+			log.Debugf("  Hardware Address: %s", iface.HardwareAddr.String())
+		}
+
+		addrs, err := iface.Addrs()
+		if err == nil {
+			for _, addr := range addrs {
+				log.Debugf("  Address: %s", addr.String())
+			}
+		}
+	}
+
+	// Log vsock context ID if available
+	if contextID, err := vsock.ContextID(); err == nil {
+		log.Debugf("Vsock Context ID: %d", contextID)
+	}
+}
+
+func (s *Server) logDiskInfo() {
+	// Read /proc/mounts for mounted filesystems
+	file, err := os.Open("/proc/mounts")
+	if err != nil {
+		log.Debugf("Disk: unable to read /proc/mounts: %v", err)
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 4 {
+			device := fields[0]
+			mountPoint := fields[1]
+			fsType := fields[2]
+			options := fields[3]
+
+			// Skip pseudo filesystems for cleaner output
+			if strings.HasPrefix(device, "/dev/") || mountPoint == "/" {
+				log.Debugf("Disk: %s mounted at %s (type: %s, options: %s)",
+					device, mountPoint, fsType, options)
+			}
+		}
+	}
+
+	// Log disk usage for key directories
+	for _, path := range []string{"/", "/tmp", "/var"} {
+		if usage, err := getDiskUsage(path); err == nil {
+			log.Debugf("Disk Usage [%s]: Total: %d MB, Free: %d MB, Used: %.1f%%",
+				path, usage.total/1024/1024, usage.free/1024/1024, usage.usedPercent)
+		}
+	}
+}
+
+type diskUsage struct {
+	total       uint64
+	free        uint64
+	usedPercent float64
+}
+
+func getDiskUsage(path string) (*diskUsage, error) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return nil, err
+	}
+
+	total := stat.Blocks * uint64(stat.Bsize)
+	free := stat.Bfree * uint64(stat.Bsize)
+	used := total - free
+	usedPercent := float64(0)
+	if total > 0 {
+		usedPercent = float64(used) / float64(total) * 100
+	}
+
+	return &diskUsage{
+		total:       total,
+		free:        free,
+		usedPercent: usedPercent,
+	}, nil
 }
