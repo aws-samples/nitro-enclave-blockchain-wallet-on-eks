@@ -1,0 +1,29 @@
+# Build artifacts
+target/
+*.eif
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Kiro specs (not needed in container)
+.kiro/
+
+# Documentation
+*.md
+!README.md
+
+# Test artifacts
+*.profraw
+*.profdata
+
+# OS files
+.DS_Store
+Thumbs.db
