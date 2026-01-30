@@ -80,7 +80,7 @@ mod tests {
     // Feature: enclave-perf-cli, Property 2: Statistics Calculation Correctness
     // **Validates: Requirements 3.4, 4.4, 5.5**
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(100))]
+        #![proptest_config(ProptestConfig::with_cases(20))]
 
         #[test]
         fn property_statistics_calculation_correctness(

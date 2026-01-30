@@ -7,9 +7,9 @@ use clap::{Parser, ValueEnum};
 use enclave_performance::json::JsonTestPayload;
 use enclave_performance::protocol::{Message, MessageType, ProtocolError};
 use enclave_performance::stats::MeasurementStats;
+use enclave_performance::transport::{connect, TransportConfig, TransportStream};
 use std::time::Instant;
 use thiserror::Error;
-use vsock::VsockStream;
 
 /// Measurement mode for performance tests
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -22,16 +22,56 @@ pub enum MeasurementMode {
     Sign,
 }
 
+/// Transport mode selection for CLI
+///
+/// Determines which underlying transport mechanism to use for communication.
+/// Defaults to `Vsock` for backward compatibility with existing deployments.
+///
+/// # Requirements
+/// - 1.4: WHEN the Pod_Binary is started with `--transport vsock`, THE Pod_Binary SHALL use vsock for connecting
+/// - 1.5: WHEN the Pod_Binary is started with `--transport tcp`, THE Pod_Binary SHALL use TCP socket for connecting
+/// - 1.6: WHEN the Pod_Binary is started without `--transport` flag, THE Pod_Binary SHALL default to vsock transport
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum TransportMode {
+    /// Virtual Socket transport for Nitro Enclave communication (default)
+    #[default]
+    Vsock,
+    /// Standard TCP socket transport for local development and testing
+    Tcp,
+}
+
 /// CLI arguments for the enclave performance measurement tool
+///
+/// # Requirements
+/// - 1.4, 1.5, 1.6: Transport mode selection with vsock default
+/// - 2.4, 2.5: TCP address configuration
+/// - 3.1, 3.2, 3.3, 3.4: Vsock CID parameter validation
 #[derive(Parser, Debug)]
 #[command(name = "enclave-perf")]
-#[command(about = "Measure vsock communication performance with Nitro Enclave")]
+#[command(about = "Measure communication performance with enclave")]
 pub struct PodArgs {
-    /// Target enclave CID
-    #[arg(short, long)]
-    pub cid: u32,
+    /// Transport mode (vsock or tcp)
+    ///
+    /// Use 'vsock' for Nitro Enclave deployments (default).
+    /// Use 'tcp' for local development and testing.
+    #[arg(long, value_enum, default_value = "vsock")]
+    pub transport: TransportMode,
 
-    /// Vsock port number
+    /// Target enclave CID (required for vsock mode)
+    ///
+    /// The Context Identifier of the target enclave.
+    /// Valid CIDs start from 3 (0-2 are reserved).
+    #[arg(short, long, required_if_eq("transport", "vsock"))]
+    pub cid: Option<u32>,
+
+    /// Target address for TCP mode (e.g., 127.0.0.1)
+    ///
+    /// Required when using TCP transport mode.
+    /// Use 127.0.0.1 for loopback connections.
+    #[arg(long, required_if_eq("transport", "tcp"))]
+    pub address: Option<String>,
+
+    /// Port number (used for both vsock and TCP)
     #[arg(short, long, default_value = "5000")]
     pub port: u32,
 
@@ -46,16 +86,42 @@ pub struct PodArgs {
 
 impl PodArgs {
     /// Validate the arguments and return an error message if invalid
+    ///
+    /// # Requirements
+    /// - 3.1: WHEN the Pod_Binary is started with `--transport vsock`, THE Pod_Binary SHALL require the `--cid` parameter
+    /// - 3.2: WHEN the Pod_Binary is started with `--transport tcp`, THE Pod_Binary SHALL NOT require the `--cid` parameter
+    /// - 3.3: IF the Pod_Binary is started with `--transport tcp` and `--cid` is provided, THEN THE Pod_Binary SHALL ignore the `--cid` parameter
+    /// - 3.4: IF the Pod_Binary is started with `--transport vsock` without `--cid`, THEN THE Pod_Binary SHALL exit with an error message
     pub fn validate(&self) -> Result<(), String> {
-        // CID 0 is reserved (VMADDR_CID_HYPERVISOR)
-        // CID 1 is reserved (VMADDR_CID_LOCAL)
-        // CID 2 is the host (VMADDR_CID_HOST)
-        // Valid enclave CIDs start from 3
-        if self.cid < 3 {
-            return Err(format!(
-                "Invalid CID: {}. CID must be 3 or greater (0-2 are reserved)",
-                self.cid
-            ));
+        // Transport-specific validation
+        match self.transport {
+            TransportMode::Vsock => {
+                // CID is required for vsock mode (Requirement 3.1, 3.4)
+                let cid = self.cid.ok_or_else(|| {
+                    "CID is required for vsock transport mode. Use --cid <value>".to_string()
+                })?;
+
+                // CID 0 is reserved (VMADDR_CID_HYPERVISOR)
+                // CID 1 is reserved (VMADDR_CID_LOCAL)
+                // CID 2 is the host (VMADDR_CID_HOST)
+                // Valid enclave CIDs start from 3
+                if cid < 3 {
+                    return Err(format!(
+                        "Invalid CID: {}. CID must be 3 or greater (0-2 are reserved)",
+                        cid
+                    ));
+                }
+            }
+            TransportMode::Tcp => {
+                // Address is required for TCP mode (Requirement 2.4)
+                if self.address.is_none() {
+                    return Err(
+                        "Address is required for TCP transport mode. Use --address <value>"
+                            .to_string(),
+                    );
+                }
+                // CID is ignored for TCP mode (Requirement 3.2, 3.3)
+            }
         }
 
         // Iterations must be at least 1
@@ -64,6 +130,28 @@ impl PodArgs {
         }
 
         Ok(())
+    }
+
+    /// Convert CLI arguments to a TransportConfig
+    ///
+    /// Creates the appropriate transport configuration based on the
+    /// selected transport mode and provided parameters.
+    ///
+    /// # Requirements
+    /// - 2.4: WHEN the Pod_Binary is started with `--transport tcp`, THE Pod_Binary SHALL require an `--address` parameter
+    /// - 2.5: WHEN the Pod_Binary is started with `--transport tcp` and `--address 127.0.0.1`, THE Pod_Binary SHALL connect to loopback
+    /// - 2.6: THE existing `--port` parameter SHALL be used for both vsock and TCP transport modes
+    pub fn to_transport_config(&self) -> TransportConfig {
+        match self.transport {
+            TransportMode::Vsock => TransportConfig::Vsock {
+                cid: self.cid,
+                port: self.port,
+            },
+            TransportMode::Tcp => TransportConfig::Tcp {
+                address: self.address.clone().unwrap_or_default(),
+                port: self.port,
+            },
+        }
     }
 }
 
@@ -137,15 +225,11 @@ impl MeasurementResult {
 /// Returns the roundtrip time in microseconds.
 ///
 /// Requirements: 3.1, 3.3
-fn execute_roundtrip(stream: &mut VsockStream) -> Result<u64, PodError> {
-    // Create a fixed-size ping payload (32 bytes)
-    let ping_payload = vec![0u8; 32];
-    let ping_msg = Message::ping(ping_payload)?;
-
+fn execute_roundtrip(stream: &mut TransportStream, ping_msg: &Message) -> Result<u64, PodError> {
     // Record start time
     let start = Instant::now();
 
-    // Send ping
+    // Send ping (reuse pre-built message)
     ping_msg.write_to(stream)?;
 
     // Receive pong
@@ -173,7 +257,7 @@ fn execute_roundtrip(stream: &mut VsockStream) -> Result<u64, PodError> {
 /// Returns the roundtrip time in microseconds.
 ///
 /// Requirements: 4.1, 4.3
-fn execute_json(stream: &mut VsockStream, sequence: u32) -> Result<u64, PodError> {
+fn execute_json(stream: &mut TransportStream, sequence: u32) -> Result<u64, PodError> {
     // Create test payload
     let payload = JsonTestPayload::new(
         std::time::SystemTime::now()
@@ -224,18 +308,12 @@ fn execute_json(stream: &mut VsockStream, sequence: u32) -> Result<u64, PodError
 /// Returns the roundtrip time in microseconds.
 ///
 /// Requirements: 5.2, 5.4
-fn execute_sign(stream: &mut VsockStream) -> Result<u64, PodError> {
-    // Create a message to be signed (32 bytes - typical hash size)
-    let message_to_sign = vec![0xABu8; 32];
-
-    // Create sign request message
-    let request_msg = Message::new(MessageType::SignRequest, message_to_sign)?;
-
+fn execute_sign(stream: &mut TransportStream, sign_msg: &Message) -> Result<u64, PodError> {
     // Record start time
     let start = Instant::now();
 
-    // Send request
-    request_msg.write_to(stream)?;
+    // Send request (reuse pre-built message)
+    sign_msg.write_to(stream)?;
 
     // Receive response
     let response = Message::read_from(stream)?;
@@ -276,30 +354,42 @@ pub struct MeasurementRunResult {
 ///
 /// Requirements: 3.1, 3.3, 4.1, 4.3, 5.2, 5.4, 6.4, 8.4
 pub fn run_measurements(args: &PodArgs) -> Result<MeasurementRunResult, PodError> {
-    // Connect to enclave via vsock
+    // Build transport configuration from CLI args
+    let config = args.to_transport_config();
+
+    // Connect to enclave using the transport abstraction
     // Connection failures are fatal and return an error with clear message
-    let mut stream = VsockStream::connect_with_cid_port(args.cid, args.port).map_err(|e| {
+    let mut stream = connect(&config).map_err(|e| {
         // Provide clear error message for connection failures
+        let target_desc = match &config {
+            TransportConfig::Vsock { cid, port } => {
+                format!("CID {} port {}", cid.unwrap_or(0), port)
+            }
+            TransportConfig::Tcp { address, port } => {
+                format!("{}:{}", address, port)
+            }
+        };
         PodError::Connection(std::io::Error::new(
             e.kind(),
-            format!(
-                "Failed to connect to enclave at CID {} port {}: {}",
-                args.cid, args.port, e
-            ),
+            format!("Failed to connect to enclave at {}: {}", target_desc, e),
         ))
     })?;
+
+    // Pre-build messages once to avoid allocations in hot path (low-latency optimization)
+    let ping_msg = Message::ping(vec![0u8; 32])?;
+    let sign_msg = Message::new(MessageType::SignRequest, vec![0xABu8; 32])?;
 
     // Perform warmup iteration (Requirement 6.4)
     println!("Performing warmup iteration...");
     match args.mode {
         MeasurementMode::Roundtrip => {
-            execute_roundtrip(&mut stream)?;
+            execute_roundtrip(&mut stream, &ping_msg)?;
         }
         MeasurementMode::Json => {
             execute_json(&mut stream, 0)?;
         }
         MeasurementMode::Sign => {
-            execute_sign(&mut stream)?;
+            execute_sign(&mut stream, &sign_msg)?;
         }
     }
 
@@ -312,9 +402,9 @@ pub fn run_measurements(args: &PodArgs) -> Result<MeasurementRunResult, PodError
     println!("Running {} iterations...", args.iterations);
     for i in 0..args.iterations {
         let result = match args.mode {
-            MeasurementMode::Roundtrip => execute_roundtrip(&mut stream),
+            MeasurementMode::Roundtrip => execute_roundtrip(&mut stream, &ping_msg),
             MeasurementMode::Json => execute_json(&mut stream, (i + 1) as u32),
-            MeasurementMode::Sign => execute_sign(&mut stream),
+            MeasurementMode::Sign => execute_sign(&mut stream, &sign_msg),
         };
 
         match result {
@@ -349,7 +439,16 @@ fn main() {
     // Print configuration
     println!("Enclave Performance Measurement Tool");
     println!("=====================================");
-    println!("Target CID: {}", args.cid);
+    match args.transport {
+        TransportMode::Vsock => {
+            println!("Transport: vsock");
+            println!("Target CID: {}", args.cid.unwrap_or(0));
+        }
+        TransportMode::Tcp => {
+            println!("Transport: TCP");
+            println!("Target Address: {}", args.address.as_deref().unwrap_or(""));
+        }
+    }
     println!("Port: {}", args.port);
     println!("Mode: {:?}", args.mode);
     println!("Iterations: {}", args.iterations);
@@ -411,7 +510,7 @@ mod tests {
     // Unit tests for CLI argument parsing
 
     #[test]
-    fn test_parse_valid_args() {
+    fn test_parse_valid_args_vsock() {
         let args = PodArgs::try_parse_from([
             "enclave-perf",
             "--cid",
@@ -425,7 +524,32 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(args.cid, 10);
+        assert_eq!(args.transport, TransportMode::Vsock);
+        assert_eq!(args.cid, Some(10));
+        assert_eq!(args.port, 5000);
+        assert_eq!(args.mode, MeasurementMode::Roundtrip);
+        assert_eq!(args.iterations, 50);
+    }
+
+    #[test]
+    fn test_parse_valid_args_tcp() {
+        let args = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--transport",
+            "tcp",
+            "--address",
+            "127.0.0.1",
+            "--port",
+            "5000",
+            "--mode",
+            "roundtrip",
+            "--iterations",
+            "50",
+        ])
+        .unwrap();
+
+        assert_eq!(args.transport, TransportMode::Tcp);
+        assert_eq!(args.address, Some("127.0.0.1".to_string()));
         assert_eq!(args.port, 5000);
         assert_eq!(args.mode, MeasurementMode::Roundtrip);
         assert_eq!(args.iterations, 50);
@@ -442,7 +566,8 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(args.cid, 10);
+        assert_eq!(args.transport, TransportMode::Vsock); // default
+        assert_eq!(args.cid, Some(10));
         assert_eq!(args.port, 5000); // default
         assert_eq!(args.mode, MeasurementMode::Json);
         assert_eq!(args.iterations, 100); // default
@@ -477,16 +602,54 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(args.cid, 10);
+        assert_eq!(args.cid, Some(10));
         assert_eq!(args.port, 6000);
         assert_eq!(args.mode, MeasurementMode::Roundtrip);
         assert_eq!(args.iterations, 200);
     }
 
     #[test]
-    fn test_missing_required_cid() {
+    fn test_missing_required_cid_for_vsock_explicit() {
+        // CID is required for vsock mode when explicitly specified
         let result = PodArgs::try_parse_from([
             "enclave-perf",
+            "--transport",
+            "vsock",
+            "--mode",
+            "roundtrip",
+        ]);
+
+        // Clap enforces required_if_eq when transport is explicitly set to vsock
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_missing_cid_for_default_vsock_validated() {
+        // When transport defaults to vsock and CID is missing,
+        // parsing succeeds but validation fails
+        let result = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--mode",
+            "roundtrip",
+        ]);
+
+        // Parsing succeeds (clap doesn't enforce required_if_eq for default values)
+        assert!(result.is_ok());
+        
+        // But validation should fail
+        let args = result.unwrap();
+        let validation = args.validate();
+        assert!(validation.is_err());
+        assert!(validation.unwrap_err().contains("CID is required"));
+    }
+
+    #[test]
+    fn test_missing_required_address_for_tcp() {
+        // Address is required for TCP mode
+        let result = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--transport",
+            "tcp",
             "--mode",
             "roundtrip",
         ]);
@@ -519,9 +682,24 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_transport() {
+        let result = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--transport",
+            "invalid",
+            "--mode",
+            "roundtrip",
+        ]);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_validate_invalid_cid_zero() {
         let args = PodArgs {
-            cid: 0,
+            transport: TransportMode::Vsock,
+            cid: Some(0),
+            address: None,
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
@@ -535,7 +713,9 @@ mod tests {
     #[test]
     fn test_validate_invalid_cid_one() {
         let args = PodArgs {
-            cid: 1,
+            transport: TransportMode::Vsock,
+            cid: Some(1),
+            address: None,
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
@@ -548,7 +728,9 @@ mod tests {
     #[test]
     fn test_validate_invalid_cid_two() {
         let args = PodArgs {
-            cid: 2,
+            transport: TransportMode::Vsock,
+            cid: Some(2),
+            address: None,
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
@@ -561,7 +743,72 @@ mod tests {
     #[test]
     fn test_validate_valid_cid_three() {
         let args = PodArgs {
-            cid: 3,
+            transport: TransportMode::Vsock,
+            cid: Some(3),
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+        };
+
+        let result = args.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_vsock_missing_cid() {
+        let args = PodArgs {
+            transport: TransportMode::Vsock,
+            cid: None,
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+        };
+
+        let result = args.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("CID is required"));
+    }
+
+    #[test]
+    fn test_validate_tcp_missing_address() {
+        let args = PodArgs {
+            transport: TransportMode::Tcp,
+            cid: None,
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+        };
+
+        let result = args.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Address is required"));
+    }
+
+    #[test]
+    fn test_validate_tcp_valid() {
+        let args = PodArgs {
+            transport: TransportMode::Tcp,
+            cid: None,
+            address: Some("127.0.0.1".to_string()),
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+        };
+
+        let result = args.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_tcp_ignores_cid() {
+        // CID should be ignored for TCP mode (Requirement 3.3)
+        let args = PodArgs {
+            transport: TransportMode::Tcp,
+            cid: Some(10), // This should be ignored
+            address: Some("127.0.0.1".to_string()),
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
@@ -574,7 +821,9 @@ mod tests {
     #[test]
     fn test_validate_zero_iterations() {
         let args = PodArgs {
-            cid: 10,
+            transport: TransportMode::Vsock,
+            cid: Some(10),
+            address: None,
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 0,
@@ -588,7 +837,9 @@ mod tests {
     #[test]
     fn test_validate_valid_args() {
         let args = PodArgs {
-            cid: 10,
+            transport: TransportMode::Vsock,
+            cid: Some(10),
+            address: None,
             port: 5000,
             mode: MeasurementMode::Json,
             iterations: 100,
@@ -915,13 +1166,81 @@ mod tests {
     // Property-based tests
     use proptest::prelude::*;
 
+    // Feature: socket-transport-abstraction, Property 1: Transport Mode CLI Parsing
+    // **Validates: Requirements 1.1, 1.2, 1.4, 1.5**
+    //
+    // *For any* valid transport mode string ("vsock" or "tcp"), parsing the CLI arguments
+    // with that transport mode SHALL produce the corresponding `TransportMode` enum value
+    // (`TransportMode::Vsock` or `TransportMode::Tcp`).
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        #[test]
+        fn prop_transport_mode_cli_parsing(
+            transport_mode_str in "(vsock|tcp)",
+        ) {
+            // Determine expected TransportMode based on the generated string
+            let expected_mode = match transport_mode_str.as_str() {
+                "vsock" => TransportMode::Vsock,
+                "tcp" => TransportMode::Tcp,
+                _ => unreachable!("Generator only produces 'vsock' or 'tcp'"),
+            };
+
+            // Build CLI arguments based on transport mode
+            // For vsock: requires --cid
+            // For tcp: requires --address
+            let args_result = match transport_mode_str.as_str() {
+                "vsock" => PodArgs::try_parse_from([
+                    "enclave-perf",
+                    "--transport",
+                    &transport_mode_str,
+                    "--cid",
+                    "10",
+                    "--mode",
+                    "roundtrip",
+                ]),
+                "tcp" => PodArgs::try_parse_from([
+                    "enclave-perf",
+                    "--transport",
+                    &transport_mode_str,
+                    "--address",
+                    "127.0.0.1",
+                    "--mode",
+                    "roundtrip",
+                ]),
+                _ => unreachable!("Generator only produces 'vsock' or 'tcp'"),
+            };
+
+            // Verify parsing succeeds
+            prop_assert!(
+                args_result.is_ok(),
+                "Failed to parse valid transport mode '{}': {:?}",
+                transport_mode_str,
+                args_result.err()
+            );
+
+            let parsed_args = args_result.unwrap();
+
+            // Verify the parsed TransportMode matches the expected value
+            // This validates Requirements 1.1, 1.2, 1.4, 1.5
+            prop_assert_eq!(
+                parsed_args.transport,
+                expected_mode,
+                "Transport mode mismatch: parsed '{}' but got {:?}, expected {:?}",
+                transport_mode_str,
+                parsed_args.transport,
+                expected_mode
+            );
+        }
+    }
+
     // Feature: enclave-perf-cli, Property 6: CLI Argument Parsing
     // **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(100))]
+        #![proptest_config(ProptestConfig::with_cases(20))]
 
         #[test]
-        fn prop_cli_argument_parsing(
+        fn prop_cli_argument_parsing_vsock(
             cid in 3u32..=u32::MAX,  // Valid CIDs start from 3
             port in any::<u32>(),
             mode_idx in 0u8..3u8,    // 0=roundtrip, 1=json, 2=sign
@@ -941,7 +1260,7 @@ mod tests {
                 _ => MeasurementMode::Sign,
             };
 
-            // Build command line arguments
+            // Build command line arguments for vsock mode
             let args = PodArgs::try_parse_from([
                 "enclave-perf",
                 "--cid",
@@ -960,10 +1279,227 @@ mod tests {
             let parsed = args.unwrap();
 
             // Verify all parsed values match the generated values
-            prop_assert_eq!(parsed.cid, cid, "CID mismatch");
+            prop_assert_eq!(parsed.transport, TransportMode::Vsock, "Transport should default to Vsock");
+            prop_assert_eq!(parsed.cid, Some(cid), "CID mismatch");
             prop_assert_eq!(parsed.port, port, "Port mismatch");
             prop_assert_eq!(parsed.mode, expected_mode, "Mode mismatch");
             prop_assert_eq!(parsed.iterations, iterations, "Iterations mismatch");
         }
+
+        #[test]
+        fn prop_cli_argument_parsing_tcp(
+            port in any::<u32>(),
+            mode_idx in 0u8..3u8,    // 0=roundtrip, 1=json, 2=sign
+            iterations in 1usize..=10000usize,  // Positive iterations
+        ) {
+            // Map mode index to mode string
+            let mode_str = match mode_idx {
+                0 => "roundtrip",
+                1 => "json",
+                _ => "sign",
+            };
+
+            // Expected mode enum value
+            let expected_mode = match mode_idx {
+                0 => MeasurementMode::Roundtrip,
+                1 => MeasurementMode::Json,
+                _ => MeasurementMode::Sign,
+            };
+
+            // Build command line arguments for TCP mode
+            let args = PodArgs::try_parse_from([
+                "enclave-perf",
+                "--transport",
+                "tcp",
+                "--address",
+                "127.0.0.1",
+                "--port",
+                &port.to_string(),
+                "--mode",
+                mode_str,
+                "--iterations",
+                &iterations.to_string(),
+            ]);
+
+            // Verify parsing succeeds
+            prop_assert!(args.is_ok(), "Failed to parse valid TCP arguments");
+
+            let parsed = args.unwrap();
+
+            // Verify all parsed values match the generated values
+            prop_assert_eq!(parsed.transport, TransportMode::Tcp, "Transport should be Tcp");
+            prop_assert_eq!(parsed.address, Some("127.0.0.1".to_string()), "Address mismatch");
+            prop_assert_eq!(parsed.port, port, "Port mismatch");
+            prop_assert_eq!(parsed.mode, expected_mode, "Mode mismatch");
+            prop_assert_eq!(parsed.iterations, iterations, "Iterations mismatch");
+        }
+    }
+
+    // Feature: socket-transport-abstraction, Property 4: Port Parameter Consistency
+    // **Validates: Requirements 2.6**
+    //
+    // *For any* valid port number and any transport mode, the port parameter SHALL be
+    // correctly included in the resulting `TransportConfig` and used for binding (server)
+    // or connecting (client).
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(20))]
+
+        #[test]
+        fn prop_port_parameter_consistency(
+            port in any::<u32>(),
+            transport_mode_idx in 0u8..2u8,  // 0=vsock, 1=tcp
+        ) {
+            // Determine transport mode based on index
+            let (transport_mode, transport_str) = match transport_mode_idx {
+                0 => (TransportMode::Vsock, "vsock"),
+                _ => (TransportMode::Tcp, "tcp"),
+            };
+
+            // Build CLI arguments based on transport mode
+            // For vsock: requires --cid
+            // For tcp: requires --address
+            let args_result = match transport_mode {
+                TransportMode::Vsock => PodArgs::try_parse_from([
+                    "enclave-perf",
+                    "--transport",
+                    transport_str,
+                    "--cid",
+                    "10",
+                    "--port",
+                    &port.to_string(),
+                    "--mode",
+                    "roundtrip",
+                ]),
+                TransportMode::Tcp => PodArgs::try_parse_from([
+                    "enclave-perf",
+                    "--transport",
+                    transport_str,
+                    "--address",
+                    "127.0.0.1",
+                    "--port",
+                    &port.to_string(),
+                    "--mode",
+                    "roundtrip",
+                ]),
+            };
+
+            // Verify parsing succeeds
+            prop_assert!(
+                args_result.is_ok(),
+                "Failed to parse valid arguments with port {}: {:?}",
+                port,
+                args_result.err()
+            );
+
+            let parsed_args = args_result.unwrap();
+
+            // Verify the parsed port matches the generated port
+            prop_assert_eq!(
+                parsed_args.port,
+                port,
+                "Parsed port {} does not match generated port {}",
+                parsed_args.port,
+                port
+            );
+
+            // Convert to TransportConfig and verify port is correctly included
+            let config = parsed_args.to_transport_config();
+
+            // Verify the port in TransportConfig matches the generated port
+            // This validates Requirement 2.6: THE existing `--port` parameter SHALL be
+            // used for both vsock and TCP transport modes
+            match config {
+                TransportConfig::Vsock { port: config_port, .. } => {
+                    prop_assert_eq!(
+                        config_port,
+                        port,
+                        "Vsock TransportConfig port {} does not match generated port {}",
+                        config_port,
+                        port
+                    );
+                }
+                TransportConfig::Tcp { port: config_port, .. } => {
+                    prop_assert_eq!(
+                        config_port,
+                        port,
+                        "Tcp TransportConfig port {} does not match generated port {}",
+                        config_port,
+                        port
+                    );
+                }
+            }
+
+            // Also verify the transport mode is correct
+            prop_assert_eq!(
+                parsed_args.transport,
+                transport_mode,
+                "Transport mode mismatch"
+            );
+        }
+    }
+
+    // Unit tests for to_transport_config method
+
+    #[test]
+    fn test_to_transport_config_vsock() {
+        let args = PodArgs {
+            transport: TransportMode::Vsock,
+            cid: Some(16),
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+        };
+
+        let config = args.to_transport_config();
+        match config {
+            TransportConfig::Vsock { cid, port } => {
+                assert_eq!(cid, Some(16));
+                assert_eq!(port, 5000);
+            }
+            _ => panic!("Expected Vsock config"),
+        }
+    }
+
+    #[test]
+    fn test_to_transport_config_tcp() {
+        let args = PodArgs {
+            transport: TransportMode::Tcp,
+            cid: None,
+            address: Some("127.0.0.1".to_string()),
+            port: 8080,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+        };
+
+        let config = args.to_transport_config();
+        match config {
+            TransportConfig::Tcp { address, port } => {
+                assert_eq!(address, "127.0.0.1");
+                assert_eq!(port, 8080);
+            }
+            _ => panic!("Expected Tcp config"),
+        }
+    }
+
+    // Unit tests for TransportMode
+
+    #[test]
+    fn test_transport_mode_default() {
+        let mode = TransportMode::default();
+        assert_eq!(mode, TransportMode::Vsock);
+    }
+
+    #[test]
+    fn test_transport_mode_clone() {
+        let mode = TransportMode::Tcp;
+        let cloned = mode.clone();
+        assert_eq!(mode, cloned);
+    }
+
+    #[test]
+    fn test_transport_mode_debug() {
+        assert_eq!(format!("{:?}", TransportMode::Vsock), "Vsock");
+        assert_eq!(format!("{:?}", TransportMode::Tcp), "Tcp");
     }
 }

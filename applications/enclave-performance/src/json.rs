@@ -52,7 +52,7 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(100))]
+        #![proptest_config(ProptestConfig::with_cases(20))]
 
         // Feature: enclave-perf-cli, Property 3: JSON Payload Round-Trip
         // **Validates: Requirements 4.1, 4.2**

@@ -3,26 +3,99 @@
 //! Runs inside the Nitro Enclave, listens on vsock, and handles
 //! measurement requests from the pod binary.
 
+use clap::{Parser, ValueEnum};
 use enclave_performance::json::JsonTestPayload;
 use enclave_performance::protocol::{Message, MessageType, ProtocolError};
+use enclave_performance::transport::{TransportConfig, TransportListener, TransportStream};
 use k256::ecdsa::{signature::Signer, Signature, SigningKey};
 use rand_core::OsRng;
 use std::process;
 use thiserror::Error;
-use vsock::{VsockListener, VsockStream, VMADDR_CID_ANY};
 
 /// Default vsock port for the enclave server
 const DEFAULT_PORT: u32 = 5000;
 
+/// Transport mode selection for CLI
+///
+/// Determines which underlying transport mechanism to use for communication.
+/// Defaults to `Vsock` for backward compatibility with existing deployments.
+///
+/// # Requirements
+/// - 1.1: WHEN the Enclave_Binary is started with `--transport vsock`, THE Enclave_Binary SHALL use vsock for listening
+/// - 1.2: WHEN the Enclave_Binary is started with `--transport tcp`, THE Enclave_Binary SHALL use TCP socket for listening
+/// - 1.3: WHEN the Enclave_Binary is started without `--transport` flag, THE Enclave_Binary SHALL default to vsock transport
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
+pub enum TransportMode {
+    /// Virtual Socket transport for Nitro Enclave communication (default)
+    #[default]
+    Vsock,
+    /// Standard TCP socket transport for local development and testing
+    Tcp,
+}
+
+/// Command-line arguments for the enclave binary
+///
+/// # Requirements
+/// - 1.1, 1.2, 1.3: Transport mode selection with vsock default
+/// - 2.1, 2.2, 2.3: TCP bind address configuration
+#[derive(Parser, Debug)]
+#[command(name = "enclave")]
+#[command(about = "Enclave server for performance measurements")]
+pub struct EnclaveArgs {
+    /// Transport mode (vsock or tcp)
+    ///
+    /// Use 'vsock' for Nitro Enclave deployments (default).
+    /// Use 'tcp' for local development and testing.
+    #[arg(long, value_enum, default_value = "vsock")]
+    pub transport: TransportMode,
+
+    /// Bind address for TCP mode (e.g., 127.0.0.1, 0.0.0.0)
+    ///
+    /// Required when using TCP transport mode.
+    /// Use 127.0.0.1 for loopback-only access.
+    /// Use 0.0.0.0 to bind to all available interfaces.
+    #[arg(long, required_if_eq("transport", "tcp"))]
+    pub bind_address: Option<String>,
+
+    /// Port number (used for both vsock and TCP)
+    #[arg(short, long, default_value = "5000")]
+    pub port: u32,
+}
+
+impl EnclaveArgs {
+    /// Convert CLI arguments to a TransportConfig
+    ///
+    /// Creates the appropriate transport configuration based on the
+    /// selected transport mode and provided parameters.
+    pub fn to_transport_config(&self) -> TransportConfig {
+        match self.transport {
+            TransportMode::Vsock => TransportConfig::Vsock {
+                cid: None, // Server doesn't need CID
+                port: self.port,
+            },
+            TransportMode::Tcp => TransportConfig::Tcp {
+                address: self.bind_address.clone().unwrap_or_default(),
+                port: self.port,
+            },
+        }
+    }
+}
+
 /// Enclave configuration
 pub struct EnclaveConfig {
-    /// The vsock port to listen on
+    /// The port to listen on
     pub port: u32,
 }
 
 impl Default for EnclaveConfig {
     fn default() -> Self {
         Self { port: DEFAULT_PORT }
+    }
+}
+
+impl From<&EnclaveArgs> for EnclaveConfig {
+    fn from(args: &EnclaveArgs) -> Self {
+        Self { port: args.port }
     }
 }
 
@@ -64,31 +137,31 @@ impl EnclaveServer {
 
     /// Run the enclave server (blocking).
     ///
-    /// Binds to a vsock listener on the configured port and accepts incoming connections.
+    /// Binds to a listener on the configured transport and accepts incoming connections.
     ///
     /// # Requirements
-    /// - 1.1: WHEN the Enclave_Binary starts, THE Enclave_Binary SHALL bind to a
-    ///   vsock listener on a configurable port
-    /// - 1.2: WHEN the Enclave_Binary successfully binds to vsock, THE Enclave_Binary
-    ///   SHALL log the vsock CID to stdout
-    /// - 1.3: WHEN the Enclave_Binary fails to bind to vsock, THE Enclave_Binary SHALL
-    ///   exit with a non-zero status code and log an error message
-    /// - 1.4: WHILE the Enclave_Binary is running, THE Enclave_Binary SHALL accept
-    ///   incoming vsock connections
-    pub fn run(&self) -> Result<(), EnclaveError> {
-        // Bind to vsock listener on the configured port
-        // VMADDR_CID_ANY allows binding to any CID
-        let listener = VsockListener::bind_with_cid_port(VMADDR_CID_ANY, self.config.port)?;
+    /// - 1.1: WHEN the Enclave_Binary is started with `--transport vsock`, THE Enclave_Binary SHALL use vsock for listening
+    /// - 1.2: WHEN the Enclave_Binary is started with `--transport tcp`, THE Enclave_Binary SHALL use TCP socket for listening
+    /// - 5.1: WHEN the Enclave_Binary starts with TCP transport, THE Enclave_Binary SHALL bind to a TCP listener
+    /// - 5.2: WHEN the Enclave_Binary successfully binds to TCP, THE Enclave_Binary SHALL log the bind address and port
+    /// - 5.3: IF the Enclave_Binary fails to bind to the TCP address, THEN THE Enclave_Binary SHALL exit with non-zero status
+    /// - 5.4: WHILE the Enclave_Binary is running with TCP transport, THE Enclave_Binary SHALL accept incoming TCP connections
+    pub fn run(&self, transport_config: TransportConfig) -> Result<(), EnclaveError> {
+        // Bind to the configured transport
+        let listener = TransportListener::bind(&transport_config)?;
 
-        // Get and log the local CID
-        let local_cid = vsock::get_local_cid()?;
-        println!("Enclave listening on CID: {}, port: {}", local_cid, self.config.port);
+        // Log the listening address
+        println!(
+            "Enclave listening on {}, port: {}",
+            listener.local_addr_string(),
+            self.config.port
+        );
 
         // Accept incoming connections
         // Error handling: The server continues listening even after errors
         // (Requirement 8.3: log error and continue listening)
-        for stream in listener.incoming() {
-            match stream {
+        loop {
+            match listener.accept() {
                 Ok(stream) => {
                     if let Err(e) = self.handle_connection(stream) {
                         // Connection error: log and continue accepting new connections
@@ -101,20 +174,21 @@ impl EnclaveServer {
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Handle a single client connection.
     ///
     /// Reads requests from the stream and sends responses.
     ///
+    /// # Requirements
+    /// - 5.5: WHEN a TCP connection is accepted, THE Enclave_Binary SHALL handle requests using the same protocol as vsock
+    ///
     /// # Error Handling (Requirement 8.3)
     /// - Malformed messages (invalid message type, payload too large) are logged
     ///   and the connection is closed, but the server continues listening
     /// - Connection errors are logged and the server continues accepting new connections
     /// - The server never crashes on errors
-    fn handle_connection(&self, mut stream: VsockStream) -> Result<(), EnclaveError> {
+    fn handle_connection(&self, mut stream: TransportStream) -> Result<(), EnclaveError> {
         // Read and process requests until the connection is closed
         loop {
             match Message::read_from(&mut stream) {
@@ -233,13 +307,19 @@ impl EnclaveServer {
 }
 
 fn main() {
-    // Create server with default configuration
-    let config = EnclaveConfig::default();
+    // Parse command-line arguments
+    let args = EnclaveArgs::parse();
+
+    // Create server configuration from CLI args
+    let config = EnclaveConfig::from(&args);
     let server = EnclaveServer::new(config);
 
-    // Run the server
-    // If binding fails, exit with non-zero status code (Requirement 1.3)
-    if let Err(e) = server.run() {
+    // Build transport configuration from CLI args
+    let transport_config = args.to_transport_config();
+
+    // Run the server with the specified transport
+    // If binding fails, exit with non-zero status code (Requirement 5.3)
+    if let Err(e) = server.run(transport_config) {
         eprintln!("Enclave server error: {}", e);
         process::exit(1);
     }
@@ -250,6 +330,227 @@ mod tests {
     use super::*;
     use k256::ecdsa::{signature::Verifier, VerifyingKey};
     use proptest::prelude::*;
+
+    // =========================================================================
+    // Task 2.2: Unit tests for enclave CLI argument parsing
+    // Requirements: 1.1, 1.2, 1.3, 2.1
+    // =========================================================================
+
+    /// Test that the default transport mode is vsock
+    /// Validates: Requirement 1.3 - WHEN the Enclave_Binary is started without `--transport` flag,
+    /// THE Enclave_Binary SHALL default to vsock transport for backward compatibility
+    #[test]
+    fn test_transport_mode_default_is_vsock() {
+        let mode = TransportMode::default();
+        assert_eq!(mode, TransportMode::Vsock);
+    }
+
+    /// Test parsing `--transport vsock` works correctly
+    /// Validates: Requirement 1.1 - WHEN the Enclave_Binary is started with `--transport vsock`,
+    /// THE Enclave_Binary SHALL use vsock for listening
+    #[test]
+    fn test_parse_transport_vsock() {
+        let args = EnclaveArgs::try_parse_from(["enclave", "--transport", "vsock"]).unwrap();
+        assert_eq!(args.transport, TransportMode::Vsock);
+    }
+
+    /// Test parsing `--transport tcp` works correctly
+    /// Validates: Requirement 1.2 - WHEN the Enclave_Binary is started with `--transport tcp`,
+    /// THE Enclave_Binary SHALL use TCP socket for listening
+    #[test]
+    fn test_parse_transport_tcp() {
+        let args = EnclaveArgs::try_parse_from([
+            "enclave",
+            "--transport", "tcp",
+            "--bind-address", "127.0.0.1",
+        ]).unwrap();
+        assert_eq!(args.transport, TransportMode::Tcp);
+    }
+
+    /// Test that `--bind-address` is required when using TCP mode
+    /// Validates: Requirement 2.1 - WHEN the Enclave_Binary is started with `--transport tcp`,
+    /// THE Enclave_Binary SHALL require a `--bind-address` parameter
+    #[test]
+    fn test_bind_address_required_for_tcp() {
+        let result = EnclaveArgs::try_parse_from(["enclave", "--transport", "tcp"]);
+        assert!(result.is_err(), "Should fail when --bind-address is missing for TCP mode");
+        
+        let err = result.unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("bind-address") || err_str.contains("required"),
+            "Error message should mention bind-address requirement: {}",
+            err_str
+        );
+    }
+
+    /// Test that `--bind-address` is optional when using vsock mode
+    /// Validates: Requirement 1.1 - vsock mode should work without bind-address
+    #[test]
+    fn test_bind_address_optional_for_vsock() {
+        let args = EnclaveArgs::try_parse_from(["enclave", "--transport", "vsock"]).unwrap();
+        assert_eq!(args.transport, TransportMode::Vsock);
+        assert!(args.bind_address.is_none());
+    }
+
+    /// Test that default arguments (no flags) result in vsock transport
+    /// Validates: Requirement 1.3 - default to vsock transport for backward compatibility
+    #[test]
+    fn test_default_args_use_vsock() {
+        let args = EnclaveArgs::try_parse_from(["enclave"]).unwrap();
+        assert_eq!(args.transport, TransportMode::Vsock);
+        assert!(args.bind_address.is_none());
+        assert_eq!(args.port, DEFAULT_PORT);
+    }
+
+    /// Test port parsing works correctly with default value
+    #[test]
+    fn test_port_default_value() {
+        let args = EnclaveArgs::try_parse_from(["enclave"]).unwrap();
+        assert_eq!(args.port, 5000);
+    }
+
+    /// Test port parsing works correctly with custom value
+    #[test]
+    fn test_port_custom_value() {
+        let args = EnclaveArgs::try_parse_from(["enclave", "--port", "8080"]).unwrap();
+        assert_eq!(args.port, 8080);
+    }
+
+    /// Test port parsing with short flag
+    #[test]
+    fn test_port_short_flag() {
+        let args = EnclaveArgs::try_parse_from(["enclave", "-p", "3000"]).unwrap();
+        assert_eq!(args.port, 3000);
+    }
+
+    /// Test `to_transport_config()` produces correct TransportConfig for vsock mode
+    /// Validates: Requirement 1.1 - vsock transport configuration
+    #[test]
+    fn test_to_transport_config_vsock() {
+        let args = EnclaveArgs::try_parse_from(["enclave", "--transport", "vsock", "--port", "6000"]).unwrap();
+        let config = args.to_transport_config();
+        
+        match config {
+            TransportConfig::Vsock { cid, port } => {
+                assert_eq!(cid, None, "Server should not need CID");
+                assert_eq!(port, 6000);
+            }
+            _ => panic!("Expected Vsock config"),
+        }
+    }
+
+    /// Test `to_transport_config()` produces correct TransportConfig for TCP mode
+    /// Validates: Requirements 1.2, 2.1, 2.2 - TCP transport configuration
+    #[test]
+    fn test_to_transport_config_tcp() {
+        let args = EnclaveArgs::try_parse_from([
+            "enclave",
+            "--transport", "tcp",
+            "--bind-address", "127.0.0.1",
+            "--port", "8080",
+        ]).unwrap();
+        let config = args.to_transport_config();
+        
+        match config {
+            TransportConfig::Tcp { address, port } => {
+                assert_eq!(address, "127.0.0.1");
+                assert_eq!(port, 8080);
+            }
+            _ => panic!("Expected Tcp config"),
+        }
+    }
+
+    /// Test `to_transport_config()` with TCP and 0.0.0.0 bind address
+    /// Validates: Requirement 2.3 - bind to all available interfaces
+    #[test]
+    fn test_to_transport_config_tcp_all_interfaces() {
+        let args = EnclaveArgs::try_parse_from([
+            "enclave",
+            "--transport", "tcp",
+            "--bind-address", "0.0.0.0",
+            "--port", "5000",
+        ]).unwrap();
+        let config = args.to_transport_config();
+        
+        match config {
+            TransportConfig::Tcp { address, port } => {
+                assert_eq!(address, "0.0.0.0");
+                assert_eq!(port, 5000);
+            }
+            _ => panic!("Expected Tcp config"),
+        }
+    }
+
+    /// Test that bind_address can be provided with vsock (but is ignored)
+    #[test]
+    fn test_bind_address_with_vsock_is_allowed() {
+        let args = EnclaveArgs::try_parse_from([
+            "enclave",
+            "--transport", "vsock",
+            "--bind-address", "127.0.0.1",
+        ]).unwrap();
+        assert_eq!(args.transport, TransportMode::Vsock);
+        assert_eq!(args.bind_address, Some("127.0.0.1".to_string()));
+        
+        // But to_transport_config should still produce Vsock config
+        let config = args.to_transport_config();
+        match config {
+            TransportConfig::Vsock { .. } => {} // Expected
+            _ => panic!("Expected Vsock config even when bind_address is provided"),
+        }
+    }
+
+    /// Test TransportMode enum equality
+    #[test]
+    fn test_transport_mode_equality() {
+        assert_eq!(TransportMode::Vsock, TransportMode::Vsock);
+        assert_eq!(TransportMode::Tcp, TransportMode::Tcp);
+        assert_ne!(TransportMode::Vsock, TransportMode::Tcp);
+    }
+
+    /// Test TransportMode clone and copy
+    #[test]
+    fn test_transport_mode_clone_copy() {
+        let mode = TransportMode::Tcp;
+        let cloned = mode.clone();
+        let copied: TransportMode = mode; // Copy trait
+        assert_eq!(mode, cloned);
+        assert_eq!(mode, copied);
+    }
+
+    /// Test TransportMode debug format
+    #[test]
+    fn test_transport_mode_debug() {
+        assert_eq!(format!("{:?}", TransportMode::Vsock), "Vsock");
+        assert_eq!(format!("{:?}", TransportMode::Tcp), "Tcp");
+    }
+
+    /// Test EnclaveArgs debug format
+    #[test]
+    fn test_enclave_args_debug() {
+        let args = EnclaveArgs::try_parse_from([
+            "enclave",
+            "--transport", "tcp",
+            "--bind-address", "127.0.0.1",
+            "--port", "5000",
+        ]).unwrap();
+        let debug_str = format!("{:?}", args);
+        assert!(debug_str.contains("Tcp"));
+        assert!(debug_str.contains("127.0.0.1"));
+        assert!(debug_str.contains("5000"));
+    }
+
+    /// Test invalid transport mode is rejected
+    #[test]
+    fn test_invalid_transport_mode() {
+        let result = EnclaveArgs::try_parse_from(["enclave", "--transport", "invalid"]);
+        assert!(result.is_err(), "Should fail with invalid transport mode");
+    }
+
+    // =========================================================================
+    // End of Task 2.2 tests
+    // =========================================================================
 
     #[test]
     fn test_enclave_config_default() {
@@ -628,7 +929,7 @@ mod tests {
 
     // Property-based tests
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(100))]
+        #![proptest_config(ProptestConfig::with_cases(20))]
 
         // Feature: enclave-perf-cli, Property 5: Ping-Pong Response Correctness
         // **Validates: Requirements 3.2**

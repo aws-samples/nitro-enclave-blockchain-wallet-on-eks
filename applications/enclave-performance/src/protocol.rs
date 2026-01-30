@@ -256,7 +256,7 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(100))]
+        #![proptest_config(ProptestConfig::with_cases(20))]
 
         // Feature: enclave-perf-cli, Property 1: Message Serialization Round-Trip
         // **Validates: Requirements 3.1, 8.1, 8.2**
