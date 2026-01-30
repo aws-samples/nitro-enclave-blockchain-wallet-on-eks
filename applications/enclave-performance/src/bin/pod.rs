@@ -4,7 +4,9 @@
 //! the enclave, and reports statistics.
 
 use clap::{Parser, ValueEnum};
+use enclave_performance::histogram::Histogram;
 use enclave_performance::json::JsonTestPayload;
+use enclave_performance::parallel::{ParallelConfig, run_parallel_measurements};
 use enclave_performance::protocol::{Message, MessageType, ProtocolError};
 use enclave_performance::stats::MeasurementStats;
 use enclave_performance::transport::{connect, TransportConfig, TransportStream};
@@ -82,6 +84,35 @@ pub struct PodArgs {
     /// Number of iterations
     #[arg(short = 'n', long, default_value = "100")]
     pub iterations: usize,
+
+    /// Number of parallel connections (1-256)
+    ///
+    /// Specifies the number of concurrent worker threads to spawn.
+    /// Each worker establishes its own connection and runs iterations independently.
+    /// Default is 1 (single-threaded execution).
+    ///
+    /// Requirements: 4.5, 7.1
+    #[arg(long, default_value = "1", value_parser = clap::value_parser!(u16).range(1..=256))]
+    pub parallel: u16,
+
+    /// Enable histogram output
+    ///
+    /// When enabled, displays an ASCII histogram visualization of the latency
+    /// distribution alongside the standard statistics output.
+    ///
+    /// Requirements: 7.2, 7.4
+    #[arg(long, default_value = "false")]
+    pub histogram: bool,
+
+    /// Custom histogram bucket boundaries (comma-separated, in microseconds)
+    ///
+    /// Specifies custom bucket boundaries for the histogram visualization.
+    /// Values should be positive integers representing microseconds.
+    /// Example: --buckets 50,100,250,500,1000
+    ///
+    /// Requirements: 7.3
+    #[arg(long, value_delimiter = ',')]
+    pub buckets: Option<Vec<u64>>,
 }
 
 impl PodArgs {
@@ -127,6 +158,29 @@ impl PodArgs {
         // Iterations must be at least 1
         if self.iterations == 0 {
             return Err("Iterations must be at least 1".to_string());
+        }
+
+        // Validate bucket values if provided (Requirement 4.5)
+        if let Some(ref buckets) = self.buckets {
+            // Check that all bucket values are positive (> 0)
+            for (i, &value) in buckets.iter().enumerate() {
+                if value == 0 {
+                    return Err(format!(
+                        "Invalid bucket value at position {}: bucket values must be positive (> 0)",
+                        i
+                    ));
+                }
+            }
+
+            // Check that bucket values are sorted in ascending order
+            for i in 1..buckets.len() {
+                if buckets[i] <= buckets[i - 1] {
+                    return Err(format!(
+                        "Bucket values must be sorted in ascending order: {} is not greater than {}",
+                        buckets[i], buckets[i - 1]
+                    ));
+                }
+            }
         }
 
         Ok(())
@@ -206,9 +260,9 @@ impl MeasurementResult {
     /// Print a formatted report of the measurement results
     ///
     /// Displays mode, iteration count, and all statistics (min, max, mean, median)
-    /// in microseconds.
+    /// in microseconds, followed by percentile values (p50, p90, p95, p99, p99.9).
     ///
-    /// Requirements: 3.4, 4.4, 5.5
+    /// Requirements: 1.5, 3.4, 4.4, 5.5
     pub fn print_report(&self) {
         println!("Mode: {:?}", self.mode);
         println!("Iterations: {}", self.iterations);
@@ -216,6 +270,12 @@ impl MeasurementResult {
         println!("Max: {} µs", self.stats.max_us);
         println!("Mean: {:.2} µs", self.stats.mean_us);
         println!("Median: {} µs", self.stats.median_us);
+        // Percentile output (Requirement 1.5)
+        println!("p50: {:.2} µs", self.stats.p50_us);
+        println!("p90: {:.2} µs", self.stats.p90_us);
+        println!("p95: {:.2} µs", self.stats.p95_us);
+        println!("p99: {:.2} µs", self.stats.p99_us);
+        println!("p99.9: {:.2} µs", self.stats.p99_9_us);
     }
 }
 
@@ -452,53 +512,167 @@ fn main() {
     println!("Port: {}", args.port);
     println!("Mode: {:?}", args.mode);
     println!("Iterations: {}", args.iterations);
+    if args.parallel > 1 {
+        println!("Parallel workers: {}", args.parallel);
+    }
     println!();
 
-    // Run measurements
-    match run_measurements(&args) {
-        Ok(run_result) => {
-            // Report any iteration failures
-            if run_result.failed_iterations > 0 {
-                println!();
-                println!(
-                    "Warning: {} of {} iterations failed",
-                    run_result.failed_iterations, args.iterations
-                );
-            }
+    // Check if parallel mode is enabled (Requirements 4.4, 8.1)
+    // If parallel > 1, use run_parallel_measurements
+    // Otherwise, use existing run_measurements for backward compatibility
+    if args.parallel > 1 {
+        // Parallel execution mode
+        let config = args.to_transport_config();
+        let parallel_config = ParallelConfig {
+            workers: args.parallel as usize,
+            iterations_per_worker: args.iterations,
+        };
 
-            // Check if we have any successful measurements
-            if run_result.latencies.is_empty() {
-                eprintln!("Error: All iterations failed. No measurements collected.");
-                // Print summary of errors
-                for (iter, error) in &run_result.iteration_errors {
-                    eprintln!("  Iteration {}: {}", iter, error);
-                }
-                std::process::exit(1);
-            }
+        println!(
+            "Running {} iterations across {} parallel workers...",
+            args.iterations * args.parallel as usize,
+            args.parallel
+        );
 
-            // Create MeasurementResult and print report
-            match MeasurementResult::from_latencies(args.mode, &run_result.latencies) {
-                Some(result) => {
+        match run_parallel_measurements(&config, &parallel_config) {
+            Ok(aggregated) => {
+                // Report any failures
+                if aggregated.total_failed > 0 {
                     println!();
-                    println!("Results:");
-                    println!("--------");
-                    result.print_report();
                     println!(
-                        "Successful iterations: {}/{}",
-                        run_result.latencies.len(),
-                        args.iterations
+                        "Warning: {} of {} total iterations failed",
+                        aggregated.total_failed,
+                        aggregated.total_success + aggregated.total_failed
                     );
                 }
-                None => {
-                    eprintln!("Error: No measurements collected");
+
+                // Check if we have any successful measurements
+                if aggregated.all_latencies.is_empty() {
+                    eprintln!("Error: All iterations failed. No measurements collected.");
+                    for result in &aggregated.worker_results {
+                        for error in &result.errors {
+                            eprintln!("  Worker {}: {}", result.worker_id, error);
+                        }
+                    }
                     std::process::exit(1);
                 }
+
+                // Create MeasurementResult and print report
+                match MeasurementResult::from_latencies(args.mode, &aggregated.all_latencies) {
+                    Some(result) => {
+                        println!();
+                        println!("Results:");
+                        println!("--------");
+                        result.print_report();
+                        
+                        // Display worker count and total iterations (Requirement 6.4)
+                        println!();
+                        println!("Parallel execution summary:");
+                        println!(
+                            "  Workers: {}, Total iterations: {}",
+                            args.parallel,
+                            aggregated.total_success + aggregated.total_failed
+                        );
+                        println!(
+                            "  Successful iterations: {}/{}",
+                            aggregated.total_success,
+                            aggregated.total_success + aggregated.total_failed
+                        );
+                        
+                        // Display per-worker success/failure counts (Requirement 6.5)
+                        println!();
+                        println!("Per-worker results:");
+                        // Sort worker results by worker_id for consistent display
+                        let mut sorted_results: Vec<_> = aggregated.worker_results.iter().collect();
+                        sorted_results.sort_by_key(|r| r.worker_id);
+                        for worker_result in sorted_results {
+                            println!(
+                                "  Worker {}: {} successful, {} failed",
+                                worker_result.worker_id,
+                                worker_result.latencies.len(),
+                                worker_result.failed_count
+                            );
+                        }
+
+                        // Display histogram if --histogram flag is set (Requirements 7.2, 7.4, 7.5)
+                        if args.histogram {
+                            let histogram = Histogram::from_measurements(
+                                &aggregated.all_latencies,
+                                args.buckets.clone(),
+                            );
+                            println!();
+                            print!("{}", histogram.render_ascii(20));
+                        }
+                    }
+                    None => {
+                        eprintln!("Error: No measurements collected");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
             }
         }
-        Err(e) => {
-            // Handle connection failures and other fatal errors with clear messages
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+    } else {
+        // Single-threaded execution (backward compatible mode)
+        // Run measurements using existing function
+        match run_measurements(&args) {
+            Ok(run_result) => {
+                // Report any iteration failures
+                if run_result.failed_iterations > 0 {
+                    println!();
+                    println!(
+                        "Warning: {} of {} iterations failed",
+                        run_result.failed_iterations, args.iterations
+                    );
+                }
+
+                // Check if we have any successful measurements
+                if run_result.latencies.is_empty() {
+                    eprintln!("Error: All iterations failed. No measurements collected.");
+                    // Print summary of errors
+                    for (iter, error) in &run_result.iteration_errors {
+                        eprintln!("  Iteration {}: {}", iter, error);
+                    }
+                    std::process::exit(1);
+                }
+
+                // Create MeasurementResult and print report
+                match MeasurementResult::from_latencies(args.mode, &run_result.latencies) {
+                    Some(result) => {
+                        println!();
+                        println!("Results:");
+                        println!("--------");
+                        result.print_report();
+                        println!(
+                            "Successful iterations: {}/{}",
+                            run_result.latencies.len(),
+                            args.iterations
+                        );
+
+                        // Display histogram if --histogram flag is set (Requirements 7.2, 7.4, 7.5)
+                        if args.histogram {
+                            let histogram = Histogram::from_measurements(
+                                &run_result.latencies,
+                                args.buckets.clone(),
+                            );
+                            println!();
+                            print!("{}", histogram.render_ascii(20));
+                        }
+                    }
+                    None => {
+                        eprintln!("Error: No measurements collected");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Err(e) => {
+                // Handle connection failures and other fatal errors with clear messages
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
         }
     }
 }
@@ -585,6 +759,56 @@ mod tests {
         .unwrap();
 
         assert_eq!(args.mode, MeasurementMode::Sign);
+    }
+
+    #[test]
+    fn test_parse_buckets_flag() {
+        // Test parsing --buckets flag with comma-separated values
+        // Requirements: 7.3
+        let args = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--cid",
+            "10",
+            "--mode",
+            "roundtrip",
+            "--buckets",
+            "50,100,250,500,1000",
+        ])
+        .unwrap();
+
+        assert_eq!(args.buckets, Some(vec![50, 100, 250, 500, 1000]));
+    }
+
+    #[test]
+    fn test_parse_buckets_flag_single_value() {
+        // Test parsing --buckets flag with a single value
+        let args = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--cid",
+            "10",
+            "--mode",
+            "roundtrip",
+            "--buckets",
+            "100",
+        ])
+        .unwrap();
+
+        assert_eq!(args.buckets, Some(vec![100]));
+    }
+
+    #[test]
+    fn test_parse_buckets_flag_not_provided() {
+        // Test that buckets is None when not provided
+        let args = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--cid",
+            "10",
+            "--mode",
+            "roundtrip",
+        ])
+        .unwrap();
+
+        assert_eq!(args.buckets, None);
     }
 
     #[test]
@@ -703,6 +927,9 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let result = args.validate();
@@ -719,6 +946,9 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let result = args.validate();
@@ -734,6 +964,9 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let result = args.validate();
@@ -749,6 +982,9 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let result = args.validate();
@@ -764,6 +1000,9 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let result = args.validate();
@@ -780,6 +1019,9 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let result = args.validate();
@@ -796,6 +1038,9 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let result = args.validate();
@@ -812,6 +1057,9 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let result = args.validate();
@@ -827,6 +1075,9 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 0,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let result = args.validate();
@@ -843,10 +1094,184 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Json,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let result = args.validate();
         assert!(result.is_ok());
+    }
+
+    // Unit tests for bucket validation (Task 9.4)
+    // Requirements: 4.5
+
+    #[test]
+    fn test_validate_buckets_valid() {
+        // Valid bucket values: positive and sorted in ascending order
+        let args = PodArgs {
+            transport: TransportMode::Vsock,
+            cid: Some(10),
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+            parallel: 1,
+            histogram: true,
+            buckets: Some(vec![50, 100, 250, 500, 1000]),
+        };
+
+        let result = args.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_buckets_single_value() {
+        // Single bucket value is valid
+        let args = PodArgs {
+            transport: TransportMode::Vsock,
+            cid: Some(10),
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+            parallel: 1,
+            histogram: true,
+            buckets: Some(vec![100]),
+        };
+
+        let result = args.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_buckets_none() {
+        // No buckets provided is valid (will use defaults)
+        let args = PodArgs {
+            transport: TransportMode::Vsock,
+            cid: Some(10),
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+            parallel: 1,
+            histogram: true,
+            buckets: None,
+        };
+
+        let result = args.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_buckets_zero_value() {
+        // Zero bucket value is invalid (must be positive)
+        let args = PodArgs {
+            transport: TransportMode::Vsock,
+            cid: Some(10),
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+            parallel: 1,
+            histogram: true,
+            buckets: Some(vec![0, 100, 200]),
+        };
+
+        let result = args.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("bucket values must be positive"));
+        assert!(err.contains("position 0"));
+    }
+
+    #[test]
+    fn test_validate_buckets_zero_in_middle() {
+        // Zero bucket value in the middle is invalid
+        let args = PodArgs {
+            transport: TransportMode::Vsock,
+            cid: Some(10),
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+            parallel: 1,
+            histogram: true,
+            buckets: Some(vec![50, 0, 200]),
+        };
+
+        let result = args.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("bucket values must be positive"));
+        assert!(err.contains("position 1"));
+    }
+
+    #[test]
+    fn test_validate_buckets_not_sorted() {
+        // Bucket values not in ascending order is invalid
+        let args = PodArgs {
+            transport: TransportMode::Vsock,
+            cid: Some(10),
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+            parallel: 1,
+            histogram: true,
+            buckets: Some(vec![100, 50, 200]),
+        };
+
+        let result = args.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("sorted in ascending order"));
+        assert!(err.contains("50"));
+        assert!(err.contains("100"));
+    }
+
+    #[test]
+    fn test_validate_buckets_duplicate_values() {
+        // Duplicate bucket values are invalid (not strictly ascending)
+        let args = PodArgs {
+            transport: TransportMode::Vsock,
+            cid: Some(10),
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+            parallel: 1,
+            histogram: true,
+            buckets: Some(vec![100, 100, 200]),
+        };
+
+        let result = args.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("sorted in ascending order"));
+    }
+
+    #[test]
+    fn test_validate_buckets_descending_at_end() {
+        // Descending values at the end is invalid
+        let args = PodArgs {
+            transport: TransportMode::Vsock,
+            cid: Some(10),
+            address: None,
+            port: 5000,
+            mode: MeasurementMode::Roundtrip,
+            iterations: 100,
+            parallel: 1,
+            histogram: true,
+            buckets: Some(vec![50, 100, 200, 150]),
+        };
+
+        let result = args.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("sorted in ascending order"));
+        assert!(err.contains("150"));
+        assert!(err.contains("200"));
     }
 
     #[test]
@@ -1449,6 +1874,9 @@ mod tests {
             port: 5000,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let config = args.to_transport_config();
@@ -1470,6 +1898,9 @@ mod tests {
             port: 8080,
             mode: MeasurementMode::Roundtrip,
             iterations: 100,
+            parallel: 1,
+            histogram: false,
+            buckets: None,
         };
 
         let config = args.to_transport_config();
@@ -1483,6 +1914,178 @@ mod tests {
     }
 
     // Unit tests for TransportMode
+
+    // Feature: advanced-performance-metrics, Property 5: Parallel Connection Validation
+    // **Validates: Requirements 4.5**
+    //
+    // *For any* parallel connection count value:
+    // - Values in range [1, 256] are accepted
+    // - Values < 1 or > 256 are rejected with an error
+    // - Default value when unspecified is 1
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        #[test]
+        fn prop_parallel_connection_validation_valid_range(
+            parallel_value in 1u16..=256u16,
+        ) {
+            // Test that values in the valid range [1, 256] are accepted by clap's value_parser
+            let args_result = PodArgs::try_parse_from([
+                "enclave-perf",
+                "--cid",
+                "10",
+                "--mode",
+                "roundtrip",
+                "--parallel",
+                &parallel_value.to_string(),
+            ]);
+
+            // Verify parsing succeeds for valid parallel values
+            prop_assert!(
+                args_result.is_ok(),
+                "Failed to parse valid parallel value {}: {:?}",
+                parallel_value,
+                args_result.err()
+            );
+
+            let parsed_args = args_result.unwrap();
+
+            // Verify the parsed parallel value matches the generated value
+            prop_assert_eq!(
+                parsed_args.parallel,
+                parallel_value,
+                "Parsed parallel value {} does not match generated value {}",
+                parsed_args.parallel,
+                parallel_value
+            );
+        }
+
+        #[test]
+        fn prop_parallel_connection_validation_invalid_zero(
+            // Test that value 0 (below minimum) is rejected
+            _dummy in Just(()),
+        ) {
+            // Test that parallel value of 0 is rejected by clap's value_parser
+            let args_result = PodArgs::try_parse_from([
+                "enclave-perf",
+                "--cid",
+                "10",
+                "--mode",
+                "roundtrip",
+                "--parallel",
+                "0",
+            ]);
+
+            // Verify parsing fails for parallel value 0 (below minimum of 1)
+            prop_assert!(
+                args_result.is_err(),
+                "Parallel value 0 should be rejected but was accepted"
+            );
+        }
+
+        #[test]
+        fn prop_parallel_connection_validation_invalid_above_max(
+            // Test values above 256 (the maximum allowed)
+            parallel_value in 257u32..=65535u32,
+        ) {
+            // Test that values above 256 are rejected by clap's value_parser
+            let args_result = PodArgs::try_parse_from([
+                "enclave-perf",
+                "--cid",
+                "10",
+                "--mode",
+                "roundtrip",
+                "--parallel",
+                &parallel_value.to_string(),
+            ]);
+
+            // Verify parsing fails for parallel values above 256
+            prop_assert!(
+                args_result.is_err(),
+                "Parallel value {} (above 256) should be rejected but was accepted",
+                parallel_value
+            );
+        }
+    }
+
+    #[test]
+    fn test_parallel_default_value() {
+        // Test that the default value for --parallel is 1 when not specified
+        // Validates: Requirements 4.5
+        let args_result = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--cid",
+            "10",
+            "--mode",
+            "roundtrip",
+        ]);
+
+        assert!(args_result.is_ok(), "Failed to parse args without --parallel flag");
+        let parsed_args = args_result.unwrap();
+
+        // Verify default parallel value is 1
+        assert_eq!(
+            parsed_args.parallel, 1,
+            "Default parallel value should be 1, got {}",
+            parsed_args.parallel
+        );
+    }
+
+    #[test]
+    fn test_parallel_boundary_values() {
+        // Test boundary values: 1 (minimum) and 256 (maximum)
+        // Validates: Requirements 4.5
+
+        // Test minimum value (1)
+        let args_min = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--cid",
+            "10",
+            "--mode",
+            "roundtrip",
+            "--parallel",
+            "1",
+        ]);
+        assert!(args_min.is_ok(), "Parallel value 1 should be accepted");
+        assert_eq!(args_min.unwrap().parallel, 1);
+
+        // Test maximum value (256)
+        let args_max = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--cid",
+            "10",
+            "--mode",
+            "roundtrip",
+            "--parallel",
+            "256",
+        ]);
+        assert!(args_max.is_ok(), "Parallel value 256 should be accepted");
+        assert_eq!(args_max.unwrap().parallel, 256);
+
+        // Test just below minimum (0) - should fail
+        let args_below_min = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--cid",
+            "10",
+            "--mode",
+            "roundtrip",
+            "--parallel",
+            "0",
+        ]);
+        assert!(args_below_min.is_err(), "Parallel value 0 should be rejected");
+
+        // Test just above maximum (257) - should fail
+        let args_above_max = PodArgs::try_parse_from([
+            "enclave-perf",
+            "--cid",
+            "10",
+            "--mode",
+            "roundtrip",
+            "--parallel",
+            "257",
+        ]);
+        assert!(args_above_max.is_err(), "Parallel value 257 should be rejected");
+    }
 
     #[test]
     fn test_transport_mode_default() {
