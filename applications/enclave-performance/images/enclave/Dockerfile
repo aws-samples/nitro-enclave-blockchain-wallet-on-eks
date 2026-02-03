@@ -2,7 +2,7 @@
 # Runs inside the Nitro Enclave, listens on vsock for measurement requests
 
 ## Build stage - compile Rust binary
-FROM rust:1.75-alpine AS builder
+FROM rust:1.92-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache musl-dev
@@ -26,6 +26,9 @@ RUN cargo build --release --bin enclave 2>/dev/null || true
 
 # Copy actual source code
 COPY src ./src
+
+# Fix mtimes so Cargo detects change
+RUN find src -type f -name '*.rs' -exec touch {} +
 
 # Build the actual binary
 RUN cargo build --release --bin enclave

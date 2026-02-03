@@ -87,8 +87,7 @@ echo "  Iterations: ${ITERATIONS}"
 echo "  CID: ${enclave_cid}"
 echo "  Port: ${PORT}"
 
-exec /app/pod \
-    --cid "${enclave_cid}" \
-    --port "${PORT}" \
-    --mode "${MODE}" \
-    --iterations "${ITERATIONS}"
+#  keep pod alive and allow attaching to it
+while true; do
+	sleep 60
+done

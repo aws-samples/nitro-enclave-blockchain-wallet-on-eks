@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 # Enclave Performance - Enclave startup script
 # Runs inside the Nitro Enclave
 
