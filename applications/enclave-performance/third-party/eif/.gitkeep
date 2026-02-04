@@ -1,0 +1,2 @@
+# This file ensures the eif directory is tracked in git
+# EIF (Enclave Image File) files will be generated here during the build process
